@@ -273,22 +273,28 @@ export async function cdLeerTiposRequerimientos(page) {
   if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
   await page.waitForTimeout(2000);
 
-  return await page.evaluate(() => {
+  const leerDropdown = () => page.evaluate(() => {
     function textoPlano(s) {
       return (s || "").replace(/\s+/g, " ").trim();
     }
-
     // El dropdown de filtro de la bandeja tiene "Sobres activos" como primera opción,
     // seguido de todos los tipos de requerimientos de la cuenta.
     for (const sel of document.querySelectorAll("select")) {
       const opciones = Array.from(sel.options).map((o) => textoPlano(o.textContent)).filter(Boolean);
       if (opciones.some((t) => /sobres\s*activos/i.test(t))) {
-        // Devolver todo excepto la opción "Sobres activos" y opciones vacías
         return opciones.filter((t) => t && !/sobres\s*activos/i.test(t)).sort();
       }
     }
     return [];
   });
+
+  let tipos = await leerDropdown();
+  // Si la página todavía no terminó de cargar el dropdown, esperar y reintentar
+  if (!tipos.length) {
+    await page.waitForTimeout(3000);
+    tipos = await leerDropdown();
+  }
+  return tipos;
 }
 
 // Sube un archivo PDF a un requerimiento específico (por href del link).

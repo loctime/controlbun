@@ -225,9 +225,13 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
 
 TAREA: para cada página nueva, determiná a qué requerimiento pendiente pertenece.
 
-1. Identificá el tipo de documento comparando visualmente con los Tipos aprendidos.
-2. Leé la entidad de la página (nombre del empleado o patente del vehículo).
-3. Elegí el número del requerimiento pendiente que coincida con tipo + entidad.
+Proceso:
+1. TIPO DE DOCUMENTO:
+   - Compará visualmente la estructura con los Tipos aprendidos.
+   - Si dos tipos tienen referencias visuales similares o idénticas → LEÉ el título, encabezado o texto del documento para distinguirlos (ej: "seguro automotor" vs "seguro técnico" → leer el nombre de la póliza).
+2. ENTIDAD: Leé el nombre del empleado o la patente del vehículo de la página.
+3. REQ. PENDIENTE: Elegí el número de la lista que coincida con tipo + entidad.
+   El nombre del req pendiente puede incluir el período (ej: "Pago del seguro automotor-2026-4") — ignorar ese sufijo al comparar con el tipo aprendido "Pago del seguro automotor".
 
 Respondé SOLO JSON válido, sin texto extra:
 {
@@ -238,7 +242,7 @@ Respondé SOLO JSON válido, sin texto extra:
   ]
 }
 
-req_num: número de la lista de requerimientos pendientes (1-based), o null si no corresponde.`,
+req_num: número de la lista de requerimientos pendientes (1-based), o null si no corresponde a ninguno.`,
   });
 
   const resp = await llamarClaude({
