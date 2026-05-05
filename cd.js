@@ -371,59 +371,120 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
     return null;
   };
 
-  // 1. Buscar y clickar tab "Adjuntar archivo" (está dentro del fancybox-iframe de CD)
-  const btnAdjuntar = await poll(() =>
-    enFrames(async (frame) => {
-      const el = frame.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
-      return (await el.count()) > 0 ? el : null;
-    })
-  );
+  // Inyecta el archivo via DataTransfer en el documento de un frame (portado de la extensión).
+  // Busca input[type="file"] recursivamente en iframes internos via contentDocument.
+  const inyectarEnFrame = async (frame, b64, nombre) =>
+    frame.evaluate(({ b64, nombre }) => {
+      function buscarInput(doc, nivel) {
+        try {
+          const inp = doc.querySelector('input[type="file"]');
+          if (inp) return { input: inp, nivel };
+          const iframes = doc.querySelectorAll("iframe");
+          for (const iframe of iframes) {
+            try {
+              const sub = iframe.contentDocument || iframe.contentWindow.document;
+              const found = buscarInput(sub, nivel + 1);
+              if (found) return found;
+            } catch {}
+          }
+        } catch {}
+        return null;
+      }
+      function clickarAdjuntar(doc) {
+        try {
+          // Excluir td/div (containers) — buscar solo elementos "hoja" como a/button/li/span
+          const els = doc.querySelectorAll("a, button, li, span, input[type='button']");
+          for (const el of els) {
+            const txt = (el.innerText || el.value || "").trim();
+            // Texto corto (< 60 chars) que contenga "adjuntar" → es el tab/botón real
+            if (txt.length > 0 && txt.length < 60 && /adjuntar/i.test(txt)) {
+              el.click();
+              return el.tagName + ": " + txt.slice(0, 40);
+            }
+          }
+          for (const iframe of doc.querySelectorAll("iframe")) {
+            try {
+              const r = clickarAdjuntar(iframe.contentDocument || iframe.contentWindow.document);
+              if (r) return r;
+            } catch {}
+          }
+        } catch {}
+        return null;
+      }
 
-  if (!btnAdjuntar) {
-    const err = new Error(`No encontré "Adjuntar archivo" (${page.frames().length} frames). URL: ${page.url()}`);
+      const adjuntarResult = clickarAdjuntar(document);
+      const iframes = document.querySelectorAll("iframe");
+      const found = buscarInput(document, 0);
+      if (!found) return { ok: false, motivo: "sin input", adjuntar: adjuntarResult, iframes: iframes.length };
+
+      const { input, nivel } = found;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const file = new File([bytes], nombre, { type: "application/pdf" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, nivel, adjuntar: adjuntarResult };
+    }, { b64, nombre }).catch((e) => ({ ok: false, motivo: "evaluate error: " + e.message }));
+
+  const b64 = bufferPdf.toString("base64");
+  let inyectado = false;
+
+  for (let intento = 0; intento < 20 && !inyectado; intento++) {
+    await page.waitForTimeout(500);
+    const frames = page.frames();
+    console.log(`[CD] Intento ${intento}: ${frames.length} frames`);
+    for (const frame of frames) {
+      if (frame === page.mainFrame()) continue;
+      const res = await inyectarEnFrame(frame, b64, nombreArchivo);
+      console.log(`[CD] Frame "${frame.url().slice(0, 80)}":`, JSON.stringify(res));
+      if (res?.ok) { inyectado = true; break; }
+    }
+  }
+
+  if (!inyectado) {
+    const err = new Error(`No pude inyectar el archivo (${page.frames().length} frames). URL: ${page.url()}`);
     err.screenshot = await capturar();
     throw err;
   }
-  await btnAdjuntar.click();
 
-  // 2. Tras el click aparece una segunda iframe anidada con el form de subida.
-  //    Sondear hasta encontrar el input[type="file"] en cualquier frame.
-  const fileLocator = await poll(() =>
-    enFrames(async (frame) => {
-      const loc = frame.locator('input[type="file"]').first();
-      return (await loc.count()) > 0 ? loc : null;
-    })
-  );
+  await page.waitForTimeout(3000);
 
-  if (!fileLocator) {
-    const err = new Error(`No encontré input[type="file"] (${page.frames().length} frames). URL: ${page.url()}`);
-    err.screenshot = await capturar();
-    throw err;
+  // 2. Buscar y clickar botón de envío — puede estar en iframe anidado (mismo patrón que el input)
+  let enviado = false;
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    const res = await frame.evaluate(() => {
+      function clickarEnviar(doc) {
+        try {
+          const btns = doc.querySelectorAll("button, input[type='submit'], input[type='button'], a");
+          for (const el of btns) {
+            const txt = ((el.innerText || el.value || "").trim());
+            if (txt.length < 60 && /enviar|confirmar|aceptar|guardar|subir/i.test(txt)) {
+              console.log("[CD eval] Clickando enviar:", el.tagName, txt.trim().slice(0, 30));
+              el.click();
+              return txt.trim().slice(0, 30);
+            }
+          }
+          for (const iframe of doc.querySelectorAll("iframe")) {
+            try {
+              const r = clickarEnviar(iframe.contentDocument || iframe.contentWindow.document);
+              if (r) return r;
+            } catch {}
+          }
+        } catch {}
+        return null;
+      }
+      return clickarEnviar(document);
+    }).catch(() => null);
+    if (res) {
+      console.log(`[CD] Botón enviar clickado: "${res}"`);
+      enviado = true;
+      break;
+    }
   }
+  if (!enviado) console.log("[CD] No encontré botón enviar — puede ser OK si se envía automáticamente.");
 
-  // 3. Subir el archivo
-  const { writeFile, unlink } = await import("fs/promises");
-  const { join } = await import("path");
-  const { tmpdir } = await import("os");
-  const tmpPath = join(tmpdir(), nombreArchivo);
-  await writeFile(tmpPath, bufferPdf);
-
-  try {
-    await fileLocator.setInputFiles(tmpPath);
-    await page.waitForTimeout(2000);
-
-    // 4. Confirmar/enviar en cualquier frame
-    const btnEnviar = await enFrames(async (frame) => {
-      const btn = frame.locator('button, input[type="submit"]').filter({
-        hasText: /enviar|confirmar|aceptar|guardar/i,
-      }).first();
-      return (await btn.isVisible().catch(() => false)) ? btn : null;
-    });
-    if (btnEnviar) await btnEnviar.click();
-
-    await page.waitForTimeout(3000);
-    return { ok: true };
-  } finally {
-    await unlink(tmpPath).catch(() => {});
-  }
+  await page.waitForTimeout(3000);
+  return { ok: true };
 }
