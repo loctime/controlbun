@@ -5,7 +5,7 @@ const BANDEJA_URL = `${CD_URL}/Bandeja.aspx?menu=1`;
 
 let _browser = null;
 async function getBrowser() {
-  if (!_browser) _browser = await chromium.launch({ headless: true });
+  if (!_browser) _browser = await chromium.launch({ headless: false, slowMo: 400 });
   return _browser;
 }
 
@@ -346,9 +346,19 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
     await _navegarAReq(page, reqNombre, reqEntidad);
   }
 
+  // Captura de diagnóstico — se adjunta al error si algo falla
+  const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
+
   // Esperar y hacer click en "Adjuntar archivo"
   const btnAdjuntar = page.locator('a, button').filter({ hasText: /adjuntar/i }).first();
-  await btnAdjuntar.waitFor({ timeout: 15000 });
+  try {
+    await btnAdjuntar.waitFor({ timeout: 15000 });
+  } catch {
+    const screenshot = await capturar();
+    const err = new Error(`No encontré el botón "Adjuntar" en la página. URL: ${page.url()}`);
+    err.screenshot = screenshot;
+    throw err;
+  }
   await btnAdjuntar.click();
   await page.waitForTimeout(1500);
 

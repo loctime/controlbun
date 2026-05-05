@@ -430,7 +430,12 @@ bot.on("message", async (ctx) => {
             ok++;
           } catch (e) {
             const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
-            await ctx.reply(`❌ ${escapeHtml(req.nombre)}${entidad}: ${e.message}`);
+            const caption = `❌ ${escapeHtml(req.nombre)}${entidad}: ${e.message}`;
+            if (e.screenshot) {
+              await ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption });
+            } else {
+              await ctx.reply(caption);
+            }
             fail++;
           }
         }
