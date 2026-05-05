@@ -62,6 +62,14 @@ export async function eliminarMapeo(clienteId, nombre) {
   } catch {}
 }
 
+export async function leerMapeoBruto(clienteId, nombre) {
+  try {
+    return JSON.parse(await fs.readFile(path.join(DIR, String(clienteId), `${nombre}.json`), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 // Lee todos los mapeos en el formato nuevo del bot (por tipo de requerimiento).
 // Devuelve [{ nombre, paginas: [{ num, imagen, texto }] }]
 export async function leerTodosMapeosPorTipo(clienteId) {

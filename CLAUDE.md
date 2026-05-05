@@ -3,18 +3,33 @@
 ## Qué es esto
 
 Bot de Telegram que reemplaza la extensión de Chrome ControlInject/ControlBun.
-Automatiza la subida de documentos PDF a controldocumentario.com usando Claude para el matching visual y Playwright para la automatización web. Cada cliente es un usuario de Telegram con sus propias credenciales de CD y sus propios mapeos.
+Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/Gemini para el matching visual y Playwright para la automatización web. Cada cliente es un usuario de Telegram con sus propias credenciales de CD y sus propios mapeos.
 
 ## Archivos clave
 
 | Archivo | Rol |
 |---|---|
-| `bot.js` | Manejador principal del bot. Estado de sesión por usuario (en memoria). Comandos: /config, /aprender, /listo, /nuevocliente |
+| `bot.js` | Manejador principal del bot. Estado de sesión por usuario (en memoria). Todos los comandos y flujos. |
 | `pdf.js` | Renderizado de PDFs a imágenes (`pdfAImagenes` via Playwright + pdfjs CDN). Corte de PDFs (`cortarPaginas` via pdf-lib) |
-| `claude.js` | Matching de páginas con Claude (`compararPaginasConReferencia`). Portado directamente desde background.js de la extensión |
+| `claude.js` | Multi-provider AI: Claude Haiku / Gemini 2.5 Flash / Ollama. Matching de páginas (`matchearPaginasConReqs`). Provider switcheable en runtime. |
 | `mapeos.js` | Almacenamiento de mapeos por usuario en archivos JSON bajo `mapeos/{chatId}/` |
 | `cd.js` | Automatización de controldocumentario.com con Playwright: login, leer requerimientos, subir archivos |
 | `clientes.js` | Gestión de clientes: registro con código, credenciales CD, configuración |
+| `runtime.json` | Provider de AI activo (persiste entre reinicios). Gitignoreado. |
+
+## Comandos del bot
+
+| Comando | Acceso | Descripción |
+|---|---|---|
+| `/config` | todos | Configurar credenciales de CD (prueba el login antes de guardar) |
+| `/aprender` | todos | Mapear tipos de documentos con páginas de referencia |
+| `/listo` | todos | Finalizar mapeo en curso |
+| `/pendientes` | todos | Ver requerimientos pendientes en CD |
+| `/unico` | todos | Subir un PDF directo a un requerimiento sin IA ni corte |
+| `/mapeos` | todos | Ver, reemplazar o eliminar mapeos guardados |
+| `/modelo` | admin | Cambiar provider de AI en runtime: `/modelo claude` o `/modelo gemini` |
+| `/nuevocliente` | admin | Registrar nuevo cliente: `/nuevocliente NombreApellido CODIGO` |
+| `/miid` | todos | Ver el chat ID propio |
 
 ## Estructura de datos
 
@@ -44,97 +59,124 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude p
 }
 ```
 
+Un mapeo por tipo de requerimiento. El nombre del archivo es el nombre del requerimiento (incluyendo sufijo de período `-2026-4`). `baseNombreReq()` en bot.js quita ese sufijo para comparar tipos entre períodos.
+
 ## Flujos principales
 
-### /config — Configurar credenciales de CD
-1. Usuario: `/config`
-2. Bot pide usuario (email) → contraseña
-3. Bot prueba el login real contra CD antes de guardar
-4. Si OK → guarda en `clientes/{slug}.json`
-
 ### /aprender — Mapear documentos
-1. `/aprender` → login a CD → lee requerimientos pendientes (con entidades)
-2. Pide PDF de referencia → lo renderiza → manda todas las páginas al chat
-3. Usuario agrupa páginas: `1,2` → bot muestra lista de requerimientos de CD
-4. Usuario elige número → bot confirma y pide siguiente grupo
-5. `/listo` o todas asignadas → guarda mapeos por requerimiento
+1. `/aprender` → login a CD → muestra mapeos ya guardados (si hay) con sugerencia de `/mapeos`
+2. Pide PDF de referencia
+3. Si **1 página**: va directo a elegir requerimiento (sin pedir agrupación)
+4. Si **múltiples páginas**: pide agrupar con mensaje claro (`msgAgrupar`). Cuando queda 1 sola página sin asignar, también va directo a elección.
+5. Al elegir requerimiento: detecta si ya existe un mapeo para ese tipo
+   - **sí** → reemplaza con las páginas elegidas del PDF actual
+   - **no** → vuelve a elegir otro requerimiento
+   - **otro** → pide un PDF diferente para usar como referencia
+   - **/mapeos** → sale al gestor de mapeos (funciona como comando en cualquier momento)
+6. Al guardar: pregunta si quiere mapear otro documento. Si manda PDF → nuevo ciclo (sin reconectar a CD). Si escribe cualquier cosa → termina.
+7. `/listo` en cualquier momento guarda lo asignado hasta ese punto.
 
-### Trabajar — Subir PDF
-1. Usuario manda PDF
-2. Bot renderiza páginas con Playwright (`pdfAImagenes`)
-3. Lee mapeos del usuario (`leerTodosMapeosPorTipo`) — formato bot: por tipo de requerimiento
-4. Lee requerimientos pendientes de CD (`cdLeerRequerimientos`) — con entidades y hrefs reales
-5. Claude asigna cada página a un req pendiente específico (`matchearPaginasConReqs` en claude.js)
-   - Claude recibe: imágenes de referencia por tipo + lista numerada de reqs pendientes (tipo + entidad) + páginas nuevas
-   - Claude devuelve `req_num` (1-based) por cada página nueva
-6. Bot muestra resumen (grupos identificados + páginas sin identificar) y pide confirmación
-7. Usuario responde "sí" → pdf-lib corta el PDF por grupo (`cortarPaginas`) → Playwright sube cada sección (`cdSubirArchivo`)
-8. Bot reporta resultado por grupo (✅/❌) y total final
+Todos los mensajes del flujo /aprender incluyen recordatorio `/listo para finalizar el mapeo.`
+
+### /unico — Subir sin IA
+1. `/unico` → "Mandame el PDF"
+2. PDF recibido → conecta a CD, muestra lista de reqs pendientes
+3. Usuario filtra por nombre o elige por número
+4. Confirmación → sube el PDF completo sin cortar ni procesar páginas
+
+### /mapeos — Gestionar mapeos
+1. `/mapeos` → lista numerada de tipos aprendidos con cantidad de páginas
+2. Usuario elige número → bot muestra imagen(es) de referencia + opciones:
+   - `reemplazar` → pide nuevo PDF; si 1 pág guarda directo, si múltiples pide cuáles usar
+   - `eliminar` → confirmación → elimina y vuelve a la lista actualizada
+   - `cancelar` → vuelve a la lista
+3. Después de eliminar o reemplazar, **vuelve a mostrar la lista** (no cierra el flujo).
+
+### /modelo — Cambiar AI (admin)
+- `/modelo` → muestra provider activo
+- `/modelo claude` o `/modelo haiku` → cambia a Claude Haiku
+- `/modelo gemini` → cambia a Gemini 2.5 Flash
+- Cambio inmediato sin reiniciar. Persiste en `runtime.json`.
+
+### Trabajar — Subir PDF con IA
+1. Usuario manda PDF (sin comando previo)
+2. Bot renderiza páginas → lee mapeos → lee reqs pendientes de CD
+3. AI asigna cada página a un req pendiente específico (`matchearPaginasConReqs`)
+4. Bot muestra resumen y pide confirmación
+5. Usuario dice "sí" → corta PDF por grupo → sube cada sección a CD → reporta resultado
 
 ## Decisiones de arquitectura importantes
 
+### AI Provider switcheable en runtime
+`claude.js` lee `AI_PROVIDER` del `.env` al arrancar, pero puede sobreescribirse con `runtime.json` (persiste entre reinicios) o con el comando `/modelo` (cambia en memoria + escribe `runtime.json`).
+- **Producción**: Claude Haiku (`claude-haiku-4-5-20251001`) — más robusto para JSON estructurado
+- **Desarrollo**: Gemini 2.5 Flash — gratuito, ventana de 1M tokens
+- `anthropicClient` se crea siempre aunque el provider sea gemini, para que el switch sea instantáneo.
+
+### Un mapeo por tipo de requerimiento
+Cada archivo en `mapeos/{chatId}/` representa UN tipo de documento (ej: "Recibo de haberes"). `baseNombreReq(s)` quita el sufijo de período (`-2026-4`) para comparar si dos reqs son el mismo tipo aunque sean de períodos distintos. Al re-aprender un tipo ya existente, el bot muestra la imagen guardada y ofrece 4 opciones.
+
 ### Sesión de CD cacheada por usuario
-`cdObtenerSesionActiva(chatId, cdUser, cdPass)` mantiene la sesión de Playwright abierta por 25 minutos por usuario. Si la página sigue logueada, la reutiliza sin hacer login de nuevo. Invalida con `cdInvalidarSesion(chatId)` en errores o al cambiar credenciales.
+`cdObtenerSesionActiva(chatId, cdUser, cdPass)` mantiene la sesión de Playwright abierta por 25 minutos. Si sigue logueada, la reutiliza. Invalida con `cdInvalidarSesion(chatId)` en errores o al cambiar credenciales.
 
 ### Dos funciones de lectura de CD separadas
-- `cdLeerTiposRequerimientos(page)` — para /aprender: lee el dropdown de filtro de la bandeja que tiene "Sobres activos" como primera opción. Devuelve todos los TIPOS de requerimientos de la cuenta (lista completa, sin filtrar por período ni estado).
-- `cdLeerRequerimientos(page)` — para /trabajar: lee filas de la tabla filtrando por "Sobres activos" y extrae entidades (nombre de empleado o patente) por la columna "Recurso".
-
-### Entidades (empleados/vehículos) leídas por columna "Recurso"
-`parsearRecurso(td)` portado de panel.js de la extensión. Detecta el índice de la columna "Recurso" por el `<th>`. Extrae: patente (regex), link del recurso, o primera línea de innerText antes de "Argentina/Empleador/Contrato".
-
-### Lista de tipos para /aprender — sin entidades, sin duplicados
-El mapeo es general para todos los empleados/vehículos. El flujo /aprender muestra tipos únicos (ej: "Recibos de haberes ram") sin entidades específicas. Los hrefs específicos se buscan en /trabajar al momento de subir.
+- `cdLeerTiposRequerimientos(page)` — para /aprender: lee el dropdown completo de tipos (sin filtrar por período ni estado).
+- `cdLeerRequerimientos(page)` — para /trabajar y /unico: lee filas filtrando "Sobres activos", extrae entidades por columna "Recurso".
 
 ### Playwright para renderizado de PDFs
 pdfjs + node-canvas falla con imágenes embebidas en Node.js (`"Image or Canvas expected"`).
-Solución: Playwright lanza un Chromium headless y ejecuta pdfjs v3 desde CDN, igual que la extensión.
-No cambiar esto — el error es un bug de compatibilidad pdfjs v5 / canvas en Node.js.
+Solución: Playwright lanza Chromium headless y ejecuta pdfjs v3 desde CDN.
+**No cambiar esto** — es un bug de compatibilidad pdfjs v5 / canvas en Node.js.
 
-### Mapeos por tipo de requerimiento (no por empresa/sábana)
-La extensión guardaba mapeos por empresa ("Empresa ABC" → bloques con reqs).
-El bot lo invierte: cada archivo JSON es un tipo de requerimiento ("Recibo de haberes" → páginas de referencia).
-Esto simplifica el matching: Claude recibe directamente la lista de reqs pendientes de CD con sus imágenes de referencia.
-
-### Claude recibe requerimientos + entidades + imágenes
-A diferencia de la extensión donde Claude solo veía imágenes de referencia, el bot le da también:
-- La lista de requerimientos pendientes de CD con sus entidades (nombre/patente)
-Claude asigna cada página a un req pendiente específico por número (req_num 1-based).
-Esto resuelve ambigüedades de OCR: si lee "HRB4B7" pero en CD existe "HRB477", Claude elige el correcto de la lista.
-
-### Dos funciones de matching en claude.js
-- `compararPaginasConReferencia` — formato viejo (extensión), bloques con múltiples empleados. No se usa en el bot.
-- `matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes)` — formato nuevo del bot. Recibe tipos aprendidos (imágenes de referencia) + lista de reqs pendientes de CD → asigna páginas directamente a reqs específicos.
+### 1 sola llamada a AI para todo el matching
+Claude/Gemini ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
+**No cambiar a multi-llamada** — el costo sube y no mejora la precisión.
+**No agregar chain-of-thought** — empeora las asignaciones.
 
 ### Estado de sesión en memoria
-Las sesiones de /aprender y /config se guardan en un `Map` en memoria.
-Si el bot se reinicia, el usuario pierde el estado y debe volver a empezar.
-Aceptable para este caso de uso — los flujos son cortos.
+Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pierde el estado y debe volver a empezar. Aceptable — los flujos son cortos.
 
-### 1 sola llamada a Claude para todo el matching
-Igual que la extensión. Claude ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
-No cambiar a multi-llamada — el costo sube y no mejora la precisión.
-No agregar chain-of-thought — empeora las asignaciones.
+### Fases de sesión en bot.js
+
+| Fase | Descripción |
+|---|---|
+| `aprender_esperando_pdf` | Esperando PDF de referencia |
+| `aprender_agrupando` | Usuario agrupa páginas por número |
+| `aprender_asignando` | Usuario elige requerimiento para el grupo actual |
+| `aprender_confirmando_overwrite` | Conflicto: el req ya tiene mapeo, esperando sí/no/otro |
+| `aprender_overwrite_nuevo_pdf` | Esperando PDF alternativo para ese req |
+| `aprender_overwrite_nuevo_paginas` | Eligiendo páginas del PDF alternativo |
+| `aprender_preguntando_mas` | Mapeo guardado, preguntando si mapear otro |
+| `mapeos_lista` | Viendo lista de mapeos, esperando número |
+| `mapeos_viendo` | Viendo un mapeo, esperando acción (reemplazar/eliminar/cancelar) |
+| `mapeos_confirmando_eliminar` | Confirmando eliminación |
+| `mapeos_reemplazando_pdf` | Esperando nuevo PDF de referencia |
+| `mapeos_reemplazando_paginas` | Eligiendo páginas del nuevo PDF |
+| `unico_esperando_pdf` | Esperando PDF para subida directa |
+| `unico_buscando_req` | Eligiendo requerimiento destino |
+| `unico_confirmando` | Confirmando subida directa |
+| `config_esperando_user` | Esperando email de CD |
+| `config_esperando_pass` | Esperando contraseña de CD |
+| `trabajar_confirmando` | Confirmando subida con IA |
 
 ## AI Provider
 
-`claude.js` soporta tres providers, controlados por `AI_PROVIDER` en `.env`:
+`claude.js` soporta tres providers, controlados por `AI_PROVIDER` en `.env` (o sobreescrito por `runtime.json`):
 
 | Valor | Descripción |
 |---|---|
-| `claude` | Producción — Anthropic API (Haiku por defecto) |
-| `gemini` | Desarrollo — Google AI Studio, gratis. Modelo: `gemini-2.5-flash` |
-| `ollama` | Local — requiere GPU dedicada; con APU integrada es demasiado lento |
+| `claude` | Producción — Anthropic API, modelo `claude-haiku-4-5-20251001` |
+| `gemini` | Desarrollo/producción — Google AI Studio. Modelo: `gemini-2.5-flash` |
+| `ollama` | Local — requiere GPU dedicada; APU Ryzen 7 5700G es demasiado lento |
 
-Variables adicionales en `.env`:
+Variables en `.env`:
 ```
+TG_TOKEN=...
+ANTHROPIC_API_KEY=...
+ADMIN_CHAT_ID=...
 AI_PROVIDER=gemini
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
-
-# Ollama (si se usa)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=hf.co/xtuner/llava-phi-3-mini-gguf:F16
 ```
 
 > La key de Gemini debe crearse desde **aistudio.google.com/apikey** (no desde Google Cloud Console — esas keys tienen cuotas en 0).
@@ -146,13 +188,16 @@ OLLAMA_MODEL=hf.co/xtuner/llava-phi-3-mini-gguf:F16
 | Renderizado PDF (Playwright + pdfjs CDN) | ✅ Funcionando |
 | Corte de PDFs (pdf-lib) | ✅ Implementado |
 | Flujo /config (credenciales CD) | ✅ Completo y probado |
-| Flujo /aprender (mapeo) | ✅ Completo y probado |
+| Flujo /aprender mejorado | ✅ Con detección de conflictos, auto-skip 1 pág, sugerencia continuar |
+| Flujo /unico (subida directa sin IA) | ✅ Implementado |
+| Flujo /mapeos (gestión de mapeos) | ✅ Implementado |
+| Comando /modelo (switch AI en runtime) | ✅ Implementado |
 | Flujo /pendientes (listar reqs pendientes) | ✅ Implementado |
 | cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo (adjuntar + continuar + enviar) | ✅ Probado y funcionando |
-| claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Implementado |
+| claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
 | claude.js: matchearPaginasConReqs | ✅ Funcionando con Gemini |
 | Flujo Trabajar en bot.js | ✅ Implementado |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
@@ -181,7 +226,7 @@ CD tiene un retraso antes de que el botón "Buscar" esté listo. `_clickBuscarYE
 - No usar `pdfjs-dist` + `canvas` en Node.js — usa siempre Playwright para renderizar
 - No agregar chain-of-thought al prompt de Claude/Gemini para matching
 - No cambiar el flujo de 1 sola llamada a AI por matching
-- No commitear `.env`, `mapeos/`, `clientes/`, `pendientes.json` — datos sensibles por cliente
+- No commitear `.env`, `mapeos/`, `clientes/`, `pendientes.json`, `runtime.json` — datos sensibles
 - No guardar las credenciales de CD en texto plano en otro lado que no sea el JSON del cliente
 - No crear key de Gemini desde Google Cloud Console — usar aistudio.google.com
 
@@ -198,12 +243,3 @@ Si algo no funciona en el flujo de CD:
 - Verificar selectores con `headless: false` en `cd.js` → `chromium.launch({ headless: false })`
 - Los iframes de CD son el punto más frágil — revisar `cdSubirArchivo` si falla la subida
 - Agregar `await page.screenshot(...)` después de cada paso para ver el estado visual
-
-Variables de entorno necesarias en `.env`:
-```
-TG_TOKEN=...
-ANTHROPIC_API_KEY=...
-ADMIN_CHAT_ID=...
-AI_PROVIDER=gemini
-GEMINI_API_KEY=...
-```
