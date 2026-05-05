@@ -35,11 +35,16 @@ export async function guardarPendiente(codigo, nombre) {
 
 export async function actualizarCliente(chatId, datos) {
   const cliente = await cargarCliente(chatId);
-  if (!cliente) return null;
-  const slug = cliente.nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-  const actualizado = { ...cliente, ...datos };
-  await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(actualizado, null, 2));
-  return actualizado;
+  if (cliente) {
+    const slug = cliente.nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const actualizado = { ...cliente, ...datos };
+    await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(actualizado, null, 2));
+    return actualizado;
+  }
+  // Si no existe, crear entrada mínima
+  const nuevo = { chatId: String(chatId), nombre: `Usuario ${chatId}`, cdUser: "", cdPass: "", diasPersonal: 7, diasVehiculos: 15, ...datos };
+  await fs.writeFile(path.join(DIR, `cliente-${chatId}.json`), JSON.stringify(nuevo, null, 2));
+  return nuevo;
 }
 
 export async function consumirPendiente(codigo) {

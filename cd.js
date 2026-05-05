@@ -24,28 +24,49 @@ export async function cdCerrarSesion(context) {
 // Login en controldocumentario.com
 export async function cdLogin(page, user, pass) {
   await page.goto(`${CD_URL}/Login.aspx`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
+
+  console.log("[CD LOGIN] URL actual:", page.url());
 
   // Primer input de texto visible = usuario
-  await page.locator('input:not([type="password"]):not([type="hidden"]):visible').first().fill(user);
+  const inputUser = page.locator('input:not([type="password"]):not([type="hidden"]):visible').first();
+  await inputUser.fill(user);
+  console.log("[CD LOGIN] Usuario cargado");
+
   await page.locator('input[type="password"]:visible').first().fill(pass);
+  console.log("[CD LOGIN] Contraseña cargada");
 
   // Botón INGRESAR (excluir Microsoft / Soy nuevo / etc.)
   const btn = page.locator('button, input[type="submit"], input[type="button"]').filter({
     hasText: /ingresar/i,
   }).first();
-  await btn.click();
+  const btnVisible = await btn.isVisible().catch(() => false);
+  console.log("[CD LOGIN] Botón INGRESAR visible:", btnVisible);
 
-  // Esperar redirección fuera del login
+  // Registrar el wait ANTES del click para evitar race condition
+  const espera = page.waitForURL((url) => !url.href.toLowerCase().includes("login"), { timeout: 60000 });
+  await btn.click();
+  console.log("[CD LOGIN] Click enviado, esperando redirección...");
+
   try {
-    await page.waitForURL((url) => !url.toLowerCase().includes("login"), { timeout: 20000 });
+    await espera;
+    console.log("[CD LOGIN] Login OK, URL:", page.url());
     return { ok: true };
   } catch {
-    const texto = await page.locator("body").innerText().catch(() => "");
-    if (/incorrect|inv[aá]lid|err[oó]r|usuario o contrase/i.test(texto)) {
-      return { ok: false, motivo: "Usuario o contraseña incorrectos." };
+    const urlActual = page.url();
+    // Si la URL ya cambió aunque el wait haya fallado, el login fue exitoso
+    if (!urlActual.toLowerCase().includes("login")) {
+      console.log("[CD LOGIN] Login OK (detectado post-catch), URL:", urlActual);
+      return { ok: true };
     }
-    return { ok: false, motivo: "Timeout esperando respuesta del login." };
+    const texto = await page.locator("body").innerText().catch(() => "");
+    console.log("[CD LOGIN] Fallo real. URL:", urlActual);
+    console.log("[CD LOGIN] Texto body (primeros 300):", texto.slice(0, 300));
+    const screenshot = await page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
+    if (/incorrect|inv[aá]lid|err[oó]r|usuario o contrase/i.test(texto)) {
+      return { ok: false, motivo: "Usuario o contraseña incorrectos.", screenshot };
+    }
+    return { ok: false, motivo: "Timeout esperando respuesta del login.", screenshot };
   }
 }
 
@@ -78,13 +99,14 @@ export async function cdLeerRequerimientos(page) {
       const celdas = Array.from(tr.querySelectorAll(":scope > td"));
       for (const td of celdas) {
         const txt = textoPlano(td.textContent);
-        // Buscar celda con nombre de persona (2+ palabras en mayúsculas)
-        const linkTd = td.querySelector("a");
-        if (linkTd) continue; // la celda con el link del requerimiento, no es el recurso
-        if (/^([A-ZÁÉÍÓÚÑ]{2,}\s+){1,}[A-ZÁÉÍÓÚÑ]{2,}/.test(txt)) return txt;
-        // Buscar patente (ej: HRB477, ABC123)
+        if (td.querySelector("a")) continue; // celda del link del requerimiento
+        // Saltar nombres de empresa (contienen tipo societario)
+        if (/unipersonal|s\.a\b|s\.r\.l|s\.a\.s|ltda|\bsrl\b|sociedad/i.test(txt)) continue;
+        // Buscar patente primero (más específico): AB123 / ABC1234 / AB123C
         const patente = txt.match(/\b[A-Z]{2,3}\d{3,4}[A-Z]?\b/);
         if (patente) return patente[0];
+        // Nombre de persona: 2-5 palabras, cada una empieza con mayúscula, sin números
+        if (/^([A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ]*\s+){1,4}[A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ]*\s*$/.test(txt) && !/\d/.test(txt)) return txt;
       }
       return "";
     }

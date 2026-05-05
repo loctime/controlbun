@@ -111,7 +111,12 @@ bot.command("aprender", async (ctx) => {
     const login = await cdLogin(sesionCD.page, cliente.cdUser, cliente.cdPass);
     if (!login.ok) {
       await cdCerrarSesion(sesionCD.context);
-      return ctx.reply(`❌ ${login.motivo}`);
+      if (login.screenshot) {
+        await ctx.replyWithPhoto(new InputFile(login.screenshot, "login.jpg"), { caption: `❌ ${login.motivo}` });
+      } else {
+        await ctx.reply(`❌ ${login.motivo}`);
+      }
+      return;
     }
     const reqs = await cdLeerRequerimientos(sesionCD.page);
     await cdCerrarSesion(sesionCD.context);
@@ -162,13 +167,12 @@ bot.command("listo", async (ctx) => {
 bot.on("message", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const texto = (ctx.message.text || "").trim();
-  const esAdmin = chatId === String(ADMIN_ID);
   const sesion = getSesion(chatId);
 
   // ── PDF recibido ──
   if (ctx.message.document?.mime_type === "application/pdf") {
     const cliente = await cargarCliente(chatId);
-    if (!cliente && !esAdmin) return ctx.reply("No te conozco. ¿Contraseña?");
+    if (!cliente) return ctx.reply("No te conozco. ¿Contraseña?");
 
     // Aprender: PDF de referencia
     if (sesion.fase === "aprender_esperando_pdf") {
@@ -230,7 +234,14 @@ bot.on("message", async (ctx) => {
 
       if (!login.ok) {
         resetSesion(chatId);
-        return ctx.reply(`❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`);
+        if (login.screenshot) {
+          await ctx.replyWithPhoto(new InputFile(login.screenshot, "login.jpg"), {
+            caption: `❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`,
+          });
+        } else {
+          await ctx.reply(`❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`);
+        }
+        return;
       }
 
       await actualizarCliente(chatId, { cdUser, cdPass });
@@ -269,40 +280,42 @@ bot.on("message", async (ctx) => {
     );
   }
 
-  // ── Aprender: asignando requerimiento ──
+  // ── Aprender: asignando requerimiento(s) ──
   if (sesion.fase === "aprender_asignando" && texto && !texto.startsWith("/")) {
-    const idx = parseInt(texto.trim()) - 1;
     const reqs = sesion.requerimientos;
-    if (isNaN(idx) || idx < 0 || idx >= reqs.length)
-      return ctx.reply(`Escribí un número del 1 al ${reqs.length}.`);
+    const idxs = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n));
+    const invalidos = idxs.filter((i) => i < 0 || i >= reqs.length);
+    if (!idxs.length || invalidos.length)
+      return ctx.reply(`Escribí un número del 1 al ${reqs.length}, o varios separados por coma (ej: <code>9,13</code>).`, { parse_mode: "HTML" });
 
-    const req = reqs[idx];
-    const grupo = { ...sesion.grupoActual, req };
-    const grupos = [...(sesion.grupos || []), grupo];
+    const reqsElegidos = idxs.map((i) => reqs[i]);
+    const nuevosGrupos = reqsElegidos.map((req) => ({ ...sesion.grupoActual, req }));
+    const grupos = [...(sesion.grupos || []), ...nuevosGrupos];
 
     const paginasSinAsignar = new Set(sesion.paginasSinAsignar);
-    grupo.paginas.forEach((p) => paginasSinAsignar.delete(p));
+    sesion.grupoActual.paginas.forEach((p) => paginasSinAsignar.delete(p));
 
     setSesion(chatId, { grupos, paginasSinAsignar, grupoActual: null, fase: "aprender_agrupando" });
+
+    const nombresReqs = reqsElegidos
+      .map((r) => `<b>${escapeHtml(r.nombre)}</b>${r.entidad ? ` (${escapeHtml(r.entidad)})` : ""}`)
+      .join(" y ");
 
     // Si se mapearon todas las páginas, guardar y terminar
     if (!paginasSinAsignar.size) {
       const asignados = await guardarSesionMapeo(chatId);
       const resumen = asignados
-        .map(
-          (g) =>
-            `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`
-        )
+        .map((g) => `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`)
         .join("\n");
       resetSesion(chatId);
-      return ctx.reply(`✅ <b>${req.nombre}</b> = páginas ${grupo.paginas.join(", ")}\n\nTodas las páginas mapeadas. Mapeo guardado:\n\n${resumen}`, {
+      return ctx.reply(`✅ ${nombresReqs} = páginas ${sesion.grupoActual.paginas.join(", ")}\n\nTodas las páginas mapeadas. Mapeo guardado:\n\n${resumen}`, {
         parse_mode: "HTML",
       });
     }
 
     const restantes = [...paginasSinAsignar];
     return ctx.reply(
-      `✅ <b>${escapeHtml(req.nombre)}</b>${req.entidad ? ` (${escapeHtml(req.entidad)})` : ""} = páginas ${grupo.paginas.join(", ")}\n\n` +
+      `✅ ${nombresReqs} = páginas ${sesion.grupoActual.paginas.join(", ")}\n\n` +
         `Todavía tenemos ${restantes.length} página${restantes.length !== 1 ? "s" : ""} para mappear (${restantes.join(", ")}).\n` +
         `¿Algún otro grupo? ¿Con qué página seguimos?`,
       { parse_mode: "HTML" }
@@ -310,28 +323,26 @@ bot.on("message", async (ctx) => {
   }
 
   // ── Admin: mensaje sin reconocer ──
-  if (esAdmin) return ctx.reply(tonteria());
+  if (chatId === String(ADMIN_ID)) return ctx.reply(tonteria());
 
   // ── Registro con código ──
-  if (!esAdmin) {
-    const cliente = await cargarCliente(chatId);
-    if (cliente) return;
+  const cliente = await cargarCliente(chatId);
+  if (cliente) return;
 
-    if (esperandoCodigo.has(chatId)) {
-      const pendiente = await consumirPendiente(texto);
-      if (pendiente) {
-        esperandoCodigo.delete(chatId);
-        await registrarCliente(chatId, pendiente.nombre);
-        return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! Estoy listo para los PDF.`, {
-          parse_mode: "HTML",
-        });
-      }
-      return ctx.reply("Contraseña incorrecta.");
+  if (esperandoCodigo.has(chatId)) {
+    const pendiente = await consumirPendiente(texto);
+    if (pendiente) {
+      esperandoCodigo.delete(chatId);
+      await registrarCliente(chatId, pendiente.nombre);
+      return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! Estoy listo para los PDF.`, {
+        parse_mode: "HTML",
+      });
     }
-
-    esperandoCodigo.add(chatId);
-    return ctx.reply("No te conozco... ¿Contraseña?");
+    return ctx.reply("Contraseña incorrecta.");
   }
+
+  esperandoCodigo.add(chatId);
+  return ctx.reply("No te conozco... ¿Contraseña?");
 });
 
 // ─── Setup y arranque ────────────────────────────────────────────────────────
