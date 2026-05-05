@@ -1,119 +1,357 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
-import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente } from "./clientes.js";
+import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
+import { guardarMapeo } from "./mapeos.js";
+import { cdCrearSesion, cdCerrarSesion, cdLogin, cdLeerRequerimientos } from "./cd.js";
+import { tonteria } from "./tonterias.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
 const ADMIN_ID = process.env.ADMIN_CHAT_ID;
 
+// ─── Estado de sesión por usuario (en memoria) ───────────────────────────────
+
+const sesiones = new Map();
 const esperandoCodigo = new Set();
 
-// --- /miid — cualquiera ---
-bot.command("miid", (ctx) => {
-  const chatId = String(ctx.chat.id);
-  console.log(`[CMD] /miid chatId=${chatId}`);
-  return ctx.reply(`Tu chat ID es: <code>${chatId}</code>`, { parse_mode: "HTML" });
-});
+function getSesion(chatId) {
+  if (!sesiones.has(chatId)) sesiones.set(chatId, { fase: "idle" });
+  return sesiones.get(chatId);
+}
 
-// --- /nuevocliente — solo admin ---
-bot.command("nuevocliente", async (ctx) => {
-  const chatId = String(ctx.chat.id);
-  const esAdmin = chatId === String(ADMIN_ID);
-  console.log(`[CMD] /nuevocliente chatId=${chatId} esAdmin=${esAdmin}`);
-  if (!esAdmin) return;
+function setSesion(chatId, datos) {
+  sesiones.set(chatId, { ...getSesion(chatId), ...datos });
+}
 
-  const args = ctx.match?.trim();
-  const match = args?.match(/^(\S+)\s+(\S+)$/);
-  if (!match) {
-    return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
+function resetSesion(chatId) {
+  sesiones.set(chatId, { fase: "idle" });
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatearReqs(reqs) {
+  return reqs
+    .map((r, i) => {
+      const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
+      return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
+    })
+    .join("\n");
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function bajarPdf(ctx) {
+  const file = await ctx.getFile();
+  const url = `https://api.telegram.org/file/bot${process.env.TG_TOKEN}/${file.file_path}`;
+  const res = await fetch(url);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function guardarSesionMapeo(chatId) {
+  const sesion = getSesion(chatId);
+  const { grupos = [], imagenes = [] } = sesion;
+  const asignados = grupos.filter((g) => g.req);
+  if (!asignados.length) return null;
+
+  for (const grupo of asignados) {
+    const paginasRef = grupo.paginas.map((pNum) => {
+      const img = imagenes.find((i) => i.pagina === pNum);
+      return { num: pNum, imagen: img?.base64 || "", texto: "" };
+    });
+    await guardarMapeo(chatId, grupo.req.nombre, {
+      paginas: paginasRef,
+      href: grupo.req.href,
+      entidad: grupo.req.entidad,
+    });
   }
+
+  return asignados;
+}
+
+// ─── Comandos ─────────────────────────────────────────────────────────────────
+
+bot.command("miid", (ctx) =>
+  ctx.reply(`Tu chat ID es: <code>${ctx.chat.id}</code>`, { parse_mode: "HTML" })
+);
+
+bot.command("nuevocliente", async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
+  const match = ctx.match?.trim().match(/^(\S+)\s+(\S+)$/);
+  if (!match) return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
   const nombre = match[1].replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
-  const codigo = match[2].trim();
-  await guardarPendiente(codigo, nombre);
-  console.log(`[ADMIN] nuevo cliente: ${nombre} código: ${codigo}`);
-  return ctx.reply(`✅ Código <code>${codigo}</code> listo para <b>${nombre}</b>.`, { parse_mode: "HTML" });
+  await guardarPendiente(match[2].trim(), nombre);
+  return ctx.reply(`✅ Código <code>${match[2]}</code> listo para <b>${nombre}</b>.`, { parse_mode: "HTML" });
 });
+
+bot.command("config", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  setSesion(chatId, { fase: "config_esperando_user" });
+  return ctx.reply(
+    "⚙️ Configuración de credenciales de controldocumentario.com\n\nMandame tu <b>usuario</b> (email):",
+    { parse_mode: "HTML" }
+  );
+});
+
+bot.command("aprender", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales de CD configuradas. Contactá al administrador.");
+
+  await ctx.reply("⏳ Conectando a controldocumentario.com…");
+
+  let sesionCD;
+  try {
+    sesionCD = await cdCrearSesion();
+    const login = await cdLogin(sesionCD.page, cliente.cdUser, cliente.cdPass);
+    if (!login.ok) {
+      await cdCerrarSesion(sesionCD.context);
+      return ctx.reply(`❌ ${login.motivo}`);
+    }
+    const reqs = await cdLeerRequerimientos(sesionCD.page);
+    await cdCerrarSesion(sesionCD.context);
+
+    if (!reqs.length)
+      return ctx.reply("No encontré requerimientos pendientes en tu cuenta de CD.");
+
+    setSesion(chatId, { fase: "aprender_esperando_pdf", requerimientos: reqs });
+
+    return ctx.reply(
+      `✅ ${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} encontrado${reqs.length !== 1 ? "s" : ""}.\n\nMandame el PDF de referencia para configurar el mapeo.`,
+      { parse_mode: "HTML" }
+    );
+  } catch (e) {
+    if (sesionCD) await cdCerrarSesion(sesionCD.context).catch(() => {});
+    console.error("[APRENDER]", e.message);
+    return ctx.reply(`❌ Error conectando a CD: ${e.message}`);
+  }
+});
+
+bot.command("listo", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const sesion = getSesion(chatId);
+  if (sesion.fase !== "aprender_agrupando") return;
+
+  const asignados = await guardarSesionMapeo(chatId);
+  if (!asignados) {
+    resetSesion(chatId);
+    return ctx.reply("No quedó ningún grupo asignado. Empezá de nuevo con /aprender.");
+  }
+
+  const resumen = asignados
+    .map(
+      (g) =>
+        `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`
+    )
+    .join("\n");
+
+  const sinAsignar = sesion.paginasSinAsignar?.size || 0;
+  const nota = sinAsignar > 0 ? `\n\n⚠️ ${sinAsignar} página${sinAsignar !== 1 ? "s" : ""} sin mappear.` : "";
+
+  resetSesion(chatId);
+  return ctx.reply(`✅ Mapeo guardado:\n\n${resumen}${nota}`, { parse_mode: "HTML" });
+});
+
+// ─── Manejador principal ──────────────────────────────────────────────────────
 
 bot.on("message", async (ctx) => {
   const chatId = String(ctx.chat.id);
-  const texto = ctx.message.text?.trim() || "";
+  const texto = (ctx.message.text || "").trim();
   const esAdmin = chatId === String(ADMIN_ID);
-  console.log(`[MSG] chatId=${chatId} esAdmin=${esAdmin} texto="${texto}"`);
+  const sesion = getSesion(chatId);
 
-  // --- PDF (admin y clientes) ---
+  // ── PDF recibido ──
   if (ctx.message.document?.mime_type === "application/pdf") {
     const cliente = await cargarCliente(chatId);
-    if (!cliente && !esAdmin) return ctx.reply("Espera un poco... no nos conocemos, sabes la contraseña?");
-    const nombreUsuario = cliente?.nombre || "Admin";
-    await ctx.reply("📄 Renderizando páginas…");
-    try {
-      const file = await ctx.getFile();
-      const url = `https://api.telegram.org/file/bot${process.env.TG_TOKEN}/${file.file_path}`;
-      console.log(`[PDF] descargando desde Telegram…`);
-      const res = await fetch(url);
-      const buffer = Buffer.from(await res.arrayBuffer());
-      console.log(`[PDF] descargado (${Math.round(buffer.length / 1024)}KB), renderizando…`);
-      const imagenes = await pdfAImagenes(buffer);
-      console.log(`[PDF] ${nombreUsuario} → ${imagenes.length} páginas`);
-      for (const { pagina, base64 } of imagenes) {
-        console.log(`[PDF] enviando página ${pagina}/${imagenes.length}…`);
-        const imgBuffer = Buffer.from(base64, "base64");
-        await ctx.replyWithPhoto(new InputFile(imgBuffer, `pagina-${pagina}.jpg`), { caption: `Página ${pagina}` });
+    if (!cliente && !esAdmin) return ctx.reply("No te conozco. ¿Contraseña?");
+
+    // Aprender: PDF de referencia
+    if (sesion.fase === "aprender_esperando_pdf") {
+      await ctx.reply("📄 Renderizando páginas de referencia…");
+      try {
+        const buffer = await bajarPdf(ctx);
+        const imagenes = await pdfAImagenes(buffer);
+
+        for (const { pagina, base64 } of imagenes) {
+          await ctx.replyWithPhoto(new InputFile(Buffer.from(base64, "base64"), `p${pagina}.jpg`), {
+            caption: `Página ${pagina}`,
+          });
+        }
+
+        const todasLasPaginas = new Set(imagenes.map((i) => i.pagina));
+        setSesion(chatId, {
+          fase: "aprender_agrupando",
+          buffer,
+          imagenes,
+          grupos: [],
+          paginasSinAsignar: todasLasPaginas,
+        });
+
+        return ctx.reply(
+          `✅ ${imagenes.length} páginas listas. Disponibles: <b>${[...todasLasPaginas].join(", ")}</b>\n\n` +
+            `Agrupá las que van juntas en un mismo requerimiento.\n` +
+            `Escribí los números separados por coma (ej: <code>1,2</code>) o uno solo (ej: <code>3</code>).\n\n` +
+            `Cuando termines, escribí /listo.`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {
+        console.error("[PDF ERROR]", e.message);
+        return ctx.reply(`❌ Error renderizando: ${e.message}`);
       }
-      await ctx.reply(`✅ ${imagenes.length} página${imagenes.length > 1 ? "s" : ""} renderizadas correctamente.`);
-    } catch (e) {
-      console.error("[PDF ERROR]", e.message);
-      await ctx.reply(`❌ Error renderizando el PDF: ${e.message}`);
     }
+
+    // Modo trabajar (TODO)
+    await ctx.reply("📄 Recibido. El flujo de subida estará disponible pronto.");
     return;
   }
 
-  // --- Admin: ignorar otros mensajes ---
-  if (esAdmin) return;
-
-  // --- Cliente registrado ---
-  const cliente = await cargarCliente(chatId);
-  if (cliente) {
-    console.log(`[MSG] → cliente registrado: ${cliente.nombre}`);
-    return ctx.reply(`Hola ${cliente.nombre}, recibido.`);
+  // ── Config: esperando usuario de CD ──
+  if (sesion.fase === "config_esperando_user" && texto && !texto.startsWith("/")) {
+    setSesion(chatId, { fase: "config_esperando_pass", cdUserTemp: texto });
+    return ctx.reply("Ahora mandame la <b>contraseña</b>:", { parse_mode: "HTML" });
   }
 
-  // --- Esperando código ---
-  if (esperandoCodigo.has(chatId)) {
-    const pendiente = await consumirPendiente(texto);
-    if (pendiente) {
-      esperandoCodigo.delete(chatId);
-      await registrarCliente(chatId, pendiente.nombre);
-      console.log(`[MSG] → registrado: ${pendiente.nombre}`);
-      return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! estoy listo para los PDF.`, { parse_mode: "HTML" });
+  // ── Config: esperando contraseña de CD ──
+  if (sesion.fase === "config_esperando_pass" && texto && !texto.startsWith("/")) {
+    const cdUser = sesion.cdUserTemp;
+    const cdPass = texto;
+    await ctx.reply("⏳ Probando credenciales…");
+
+    let sesionCD;
+    try {
+      sesionCD = await cdCrearSesion();
+      const login = await cdLogin(sesionCD.page, cdUser, cdPass);
+      await cdCerrarSesion(sesionCD.context);
+
+      if (!login.ok) {
+        resetSesion(chatId);
+        return ctx.reply(`❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`);
+      }
+
+      await actualizarCliente(chatId, { cdUser, cdPass });
+      resetSesion(chatId);
+      return ctx.reply("✅ Credenciales guardadas y verificadas. Ya podés usar /aprender.");
+    } catch (e) {
+      if (sesionCD) await cdCerrarSesion(sesionCD.context).catch(() => {});
+      resetSesion(chatId);
+      return ctx.reply(`❌ Error probando credenciales: ${e.message}\n\nUsá /config para intentar de nuevo.`);
     }
-    console.log(`[MSG] → código incorrecto: "${texto}"`);
-    return ctx.reply("Contraseña incorrecta");
   }
 
-  // --- Desconocido ---
-  console.log(`[MSG] → desconocido, pidiendo código`);
-  esperandoCodigo.add(chatId);
-  ctx.reply("No te conozco... ¿Contraseña?");
+  // ── Aprender: agrupando páginas ──
+  if (sesion.fase === "aprender_agrupando" && texto && !texto.startsWith("/")) {
+    const nums = texto
+      .split(",")
+      .map((s) => parseInt(s.trim()))
+      .filter((n) => !isNaN(n));
+
+    if (!nums.length)
+      return ctx.reply("Escribí los números de página separados por coma, ej: <code>1,2</code>", {
+        parse_mode: "HTML",
+      });
+
+    const invalidas = nums.filter((n) => !sesion.paginasSinAsignar.has(n));
+    if (invalidas.length)
+      return ctx.reply(
+        `❌ Página${invalidas.length > 1 ? "s" : ""} no disponible${invalidas.length > 1 ? "s" : ""}: ${invalidas.join(", ")}. Disponibles: ${[...sesion.paginasSinAsignar].join(", ")}`
+      );
+
+    setSesion(chatId, { grupoActual: { paginas: nums }, fase: "aprender_asignando" });
+
+    return ctx.reply(
+      `✅ Grupo: páginas <b>${nums.join(", ")}</b>\n\n¿A qué requerimiento corresponde?\n\n${formatearReqs(sesion.requerimientos)}`,
+      { parse_mode: "HTML" }
+    );
+  }
+
+  // ── Aprender: asignando requerimiento ──
+  if (sesion.fase === "aprender_asignando" && texto && !texto.startsWith("/")) {
+    const idx = parseInt(texto.trim()) - 1;
+    const reqs = sesion.requerimientos;
+    if (isNaN(idx) || idx < 0 || idx >= reqs.length)
+      return ctx.reply(`Escribí un número del 1 al ${reqs.length}.`);
+
+    const req = reqs[idx];
+    const grupo = { ...sesion.grupoActual, req };
+    const grupos = [...(sesion.grupos || []), grupo];
+
+    const paginasSinAsignar = new Set(sesion.paginasSinAsignar);
+    grupo.paginas.forEach((p) => paginasSinAsignar.delete(p));
+
+    setSesion(chatId, { grupos, paginasSinAsignar, grupoActual: null, fase: "aprender_agrupando" });
+
+    // Si se mapearon todas las páginas, guardar y terminar
+    if (!paginasSinAsignar.size) {
+      const asignados = await guardarSesionMapeo(chatId);
+      const resumen = asignados
+        .map(
+          (g) =>
+            `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`
+        )
+        .join("\n");
+      resetSesion(chatId);
+      return ctx.reply(`✅ <b>${req.nombre}</b> = páginas ${grupo.paginas.join(", ")}\n\nTodas las páginas mapeadas. Mapeo guardado:\n\n${resumen}`, {
+        parse_mode: "HTML",
+      });
+    }
+
+    const restantes = [...paginasSinAsignar];
+    return ctx.reply(
+      `✅ <b>${escapeHtml(req.nombre)}</b>${req.entidad ? ` (${escapeHtml(req.entidad)})` : ""} = páginas ${grupo.paginas.join(", ")}\n\n` +
+        `Todavía tenemos ${restantes.length} página${restantes.length !== 1 ? "s" : ""} para mappear (${restantes.join(", ")}).\n` +
+        `¿Algún otro grupo? ¿Con qué página seguimos?`,
+      { parse_mode: "HTML" }
+    );
+  }
+
+  // ── Admin: mensaje sin reconocer ──
+  if (esAdmin) return ctx.reply(tonteria());
+
+  // ── Registro con código ──
+  if (!esAdmin) {
+    const cliente = await cargarCliente(chatId);
+    if (cliente) return;
+
+    if (esperandoCodigo.has(chatId)) {
+      const pendiente = await consumirPendiente(texto);
+      if (pendiente) {
+        esperandoCodigo.delete(chatId);
+        await registrarCliente(chatId, pendiente.nombre);
+        return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! Estoy listo para los PDF.`, {
+          parse_mode: "HTML",
+        });
+      }
+      return ctx.reply("Contraseña incorrecta.");
+    }
+
+    esperandoCodigo.add(chatId);
+    return ctx.reply("No te conozco... ¿Contraseña?");
+  }
 });
+
+// ─── Setup y arranque ────────────────────────────────────────────────────────
 
 bot.catch((err) => console.error("[BOT ERROR]", err.message));
 
 async function setupCommands() {
-  await bot.api.setMyCommands(
-    [{ command: "miid", description: "Ver tu chat ID" }],
-    { scope: { type: "default" } }
-  );
+  const base = [
+    { command: "miid", description: "Ver tu chat ID" },
+    { command: "config", description: "Configurar credenciales de controldocumentario.com" },
+    { command: "aprender", description: "Configurar mapeo de documentos" },
+    { command: "listo", description: "Finalizar mapeo actual" },
+  ];
+  await bot.api.setMyCommands(base, { scope: { type: "default" } });
   if (ADMIN_ID) {
     await bot.api.setMyCommands(
-      [
-        { command: "miid", description: "Ver tu chat ID" },
-        { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" },
-      ],
+      [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }],
       { scope: { type: "chat", chat_id: Number(ADMIN_ID) } }
     );
   }
-  console.log("[BOT] Comandos registrados en Telegram");
 }
 
 setupCommands().catch((e) => console.error("[SETUP ERROR]", e.message));

@@ -33,6 +33,15 @@ export async function guardarPendiente(codigo, nombre) {
   await fs.writeFile(PENDIENTES, JSON.stringify(pendientes, null, 2));
 }
 
+export async function actualizarCliente(chatId, datos) {
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return null;
+  const slug = cliente.nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  const actualizado = { ...cliente, ...datos };
+  await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(actualizado, null, 2));
+  return actualizado;
+}
+
 export async function consumirPendiente(codigo) {
   const pendientes = await cargarPendientes();
   const entrada = pendientes[codigo];
