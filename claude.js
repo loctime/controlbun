@@ -188,3 +188,91 @@ Respondé SOLO JSON válido, sin texto extra:
   if (resultado.length) resultado.descartados = descartados;
   return resultado.length ? resultado : null;
 }
+
+// Matching para el flujo /trabajar del bot.
+// mapeos: [{ nombre, paginas: [{ num, imagen, texto }] }]  — tipos aprendidos
+// reqsPendientes: [{ nombre, entidad, href }]               — reqs pendientes leídos de CD
+// nuevasPaginas: [{ pagina, base64 }]                       — páginas del PDF nuevo
+// Devuelve { grupos: [{ req, paginas: [N] }], sinAsignar: [N] } o null
+export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes) {
+  if (!nuevasPaginas?.length || !mapeos?.length || !reqsPendientes?.length) return null;
+
+  const content = [];
+
+  content.push({ type: "text", text: "TIPOS DE DOCUMENTO APRENDIDOS (referencias visuales):\n" });
+  mapeos.forEach((m, i) => {
+    content.push({ type: "text", text: `\nTipo ${i + 1}: "${m.nombre}"` });
+    m.paginas.forEach((p, pi) => {
+      content.push({ type: "text", text: `  Página de referencia ${pi + 1}:` });
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: p.imagen } });
+    });
+  });
+
+  const listaReqs = reqsPendientes
+    .map((r, i) => `${i + 1}. ${r.nombre}${r.entidad ? ` — ${r.entidad}` : ""}`)
+    .join("\n");
+  content.push({ type: "text", text: `\n\nREQUERIMIENTOS PENDIENTES EN CD:\n${listaReqs}` });
+
+  content.push({ type: "text", text: "\n\nPÁGINAS NUEVAS A CLASIFICAR:\n" });
+  nuevasPaginas.forEach((p) => {
+    content.push({ type: "text", text: `\nPágina ${p.pagina}:` });
+    content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: p.base64 } });
+  });
+
+  content.push({
+    type: "text",
+    text: `
+
+TAREA: para cada página nueva, determiná a qué requerimiento pendiente pertenece.
+
+1. Identificá el tipo de documento comparando visualmente con los Tipos aprendidos.
+2. Leé la entidad de la página (nombre del empleado o patente del vehículo).
+3. Elegí el número del requerimiento pendiente que coincida con tipo + entidad.
+
+Respondé SOLO JSON válido, sin texto extra:
+{
+  "paginas": [
+    { "pagina_nueva": 1, "req_num": 3, "entidad_leida": "García Juan" },
+    { "pagina_nueva": 2, "req_num": 3, "entidad_leida": "García Juan" },
+    { "pagina_nueva": 5, "req_num": null, "entidad_leida": "" }
+  ]
+}
+
+req_num: número de la lista de requerimientos pendientes (1-based), o null si no corresponde.`,
+  });
+
+  const resp = await llamarClaude({
+    model: MODELO,
+    max_tokens: 2000,
+    messages: [{ role: "user", content }],
+  });
+
+  const textoResp = (resp?.content?.[0]?.text || "").trim();
+  console.log(`[MATCH] Respuesta Claude (${textoResp.length} chars):`, textoResp.slice(0, 400));
+
+  let parsed = null;
+  try {
+    const bloqueJson = textoResp.match(/```json\s*([\s\S]*?)```/i);
+    parsed = JSON.parse(bloqueJson ? bloqueJson[1].trim() : textoResp);
+  } catch {
+    const m = textoResp.match(/\{[\s\S]*\}/);
+    if (m) try { parsed = JSON.parse(m[0]); } catch {}
+  }
+
+  if (!parsed?.paginas?.length) return null;
+
+  const grupos = new Map();
+  const sinAsignar = [];
+
+  for (const item of parsed.paginas) {
+    const num = item.req_num;
+    if (!num || num < 1 || num > reqsPendientes.length) {
+      sinAsignar.push(item.pagina_nueva);
+      continue;
+    }
+    if (!grupos.has(num)) grupos.set(num, { req: reqsPendientes[num - 1], paginas: [] });
+    grupos.get(num).paginas.push(item.pagina_nueva);
+  }
+
+  return { grupos: Array.from(grupos.values()), sinAsignar };
+}

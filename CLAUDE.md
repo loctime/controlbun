@@ -59,15 +59,17 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude p
 4. Usuario elige número → bot confirma y pide siguiente grupo
 5. `/listo` o todas asignadas → guarda mapeos por requerimiento
 
-### Trabajar — Subir PDF (TODO)
+### Trabajar — Subir PDF
 1. Usuario manda PDF
 2. Bot renderiza páginas con Playwright (`pdfAImagenes`)
-3. Claude compara páginas contra mapeos del usuario (`compararPaginasConReferencia`)
-   - Claude recibe: imágenes de referencia + entidades de CD + páginas nuevas
-   - Claude devuelve asignaciones directas a requerimientos
-4. pdf-lib corta el PDF por bloque (`cortarPaginas`)
-5. Bot muestra resumen y pide confirmación
-6. Playwright sube cada sección a su requerimiento en CD (`cdSubirArchivo`)
+3. Lee mapeos del usuario (`leerTodosMapeosPorTipo`) — formato bot: por tipo de requerimiento
+4. Lee requerimientos pendientes de CD (`cdLeerRequerimientos`) — con entidades y hrefs reales
+5. Claude asigna cada página a un req pendiente específico (`matchearPaginasConReqs` en claude.js)
+   - Claude recibe: imágenes de referencia por tipo + lista numerada de reqs pendientes (tipo + entidad) + páginas nuevas
+   - Claude devuelve `req_num` (1-based) por cada página nueva
+6. Bot muestra resumen (grupos identificados + páginas sin identificar) y pide confirmación
+7. Usuario responde "sí" → pdf-lib corta el PDF por grupo (`cortarPaginas`) → Playwright sube cada sección (`cdSubirArchivo`)
+8. Bot reporta resultado por grupo (✅/❌) y total final
 
 ## Decisiones de arquitectura importantes
 
@@ -97,8 +99,12 @@ Esto simplifica el matching: Claude recibe directamente la lista de reqs pendien
 ### Claude recibe requerimientos + entidades + imágenes
 A diferencia de la extensión donde Claude solo veía imágenes de referencia, el bot le da también:
 - La lista de requerimientos pendientes de CD con sus entidades (nombre/patente)
-- El texto estable de cada página de referencia (TODO: extraer al aprender)
-Esto resuelve ambigüedades de OCR: si lee "HRB4B7" pero en CD existe "HRB477", Claude elige el correcto.
+Claude asigna cada página a un req pendiente específico por número (req_num 1-based).
+Esto resuelve ambigüedades de OCR: si lee "HRB4B7" pero en CD existe "HRB477", Claude elige el correcto de la lista.
+
+### Dos funciones de matching en claude.js
+- `compararPaginasConReferencia` — formato viejo (extensión), bloques con múltiples empleados. No se usa en el bot.
+- `matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes)` — formato nuevo del bot. Recibe tipos aprendidos (imágenes de referencia) + lista de reqs pendientes de CD → asigna páginas directamente a reqs específicos.
 
 ### Estado de sesión en memoria
 Las sesiones de /aprender y /config se guardan en un `Map` en memoria.
@@ -123,7 +129,7 @@ No agregar chain-of-thought — empeora las asignaciones.
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo | ✅ Estructura base (ajustar selectores con CD real) |
 | claude.js: compararPaginasConReferencia | ✅ Portado desde extensión |
-| Flujo Trabajar en bot.js | ⏳ Pendiente |
+| Flujo Trabajar en bot.js | ✅ Implementado |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end con CD real | ⏳ Pendiente |
 

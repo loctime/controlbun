@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
 import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente } from "./clientes.js";
-import { pdfAImagenes } from "./pdf.js";
-import { guardarMapeo } from "./mapeos.js";
-import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos } from "./cd.js";
+import { pdfAImagenes, cortarPaginas } from "./pdf.js";
+import { guardarMapeo, leerTodosMapeosPorTipo } from "./mapeos.js";
+import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo } from "./cd.js";
+import { matchearPaginasConReqs } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
@@ -29,13 +30,17 @@ function resetSesion(chatId) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatearReqs(reqs) {
-  return reqs
-    .map((r, i) => {
-      const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
-      return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
-    })
-    .join("\n");
+const MAX_REQS_VISIBLE = 20;
+
+function formatearReqs(reqs, { mostrarTodos = false } = {}) {
+  const visibles = mostrarTodos ? reqs : reqs.slice(0, MAX_REQS_VISIBLE);
+  const resto = reqs.length - visibles.length;
+  const lineas = visibles.map((r, i) => {
+    const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
+    return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
+  });
+  if (resto > 0) lineas.push(`\n<i>... y ${resto} más. Escribí parte del nombre para filtrar.</i>`);
+  return lineas.join("\n");
 }
 
 function escapeHtml(s) {
@@ -207,9 +212,59 @@ bot.on("message", async (ctx) => {
       }
     }
 
-    // Modo trabajar (TODO)
-    await ctx.reply("📄 Recibido. El flujo de subida estará disponible pronto.");
-    return;
+    // Modo trabajar: analizar y subir
+    await ctx.reply("⏳ Analizando documentos…");
+    try {
+      const buffer = await bajarPdf(ctx);
+      const imagenes = await pdfAImagenes(buffer);
+
+      const mapeos = await leerTodosMapeosPorTipo(chatId);
+      if (!mapeos.length)
+        return ctx.reply("❌ No tenés mapeos configurados. Usá /aprender primero para enseñarme los tipos de documentos.");
+
+      await ctx.reply(`🔗 ${imagenes.length} páginas listas. Leyendo requerimientos de CD…`);
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) {
+        if (sesCD.screenshot) {
+          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+        }
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
+      }
+
+      const reqs = await cdLeerRequerimientos(sesCD.page);
+      if (!reqs.length)
+        return ctx.reply("No hay requerimientos pendientes en CD por el momento.");
+
+      await ctx.reply(`🤖 Clasificando ${imagenes.length} páginas contra ${reqs.length} requerimientos pendientes…`);
+      const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs);
+
+      if (!resultado || !resultado.grupos.length)
+        return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
+
+      const lineas = resultado.grupos.map((g, i) => {
+        const entidad = g.req.entidad ? ` — <i>${escapeHtml(g.req.entidad)}</i>` : "";
+        const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
+        return `${i + 1}. <b>${escapeHtml(g.req.nombre)}</b>${entidad} → págs. ${pags}`;
+      });
+      if (resultado.sinAsignar.length)
+        lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
+
+      setSesion(chatId, {
+        fase: "trabajar_confirmando",
+        buffer,
+        gruposSubir: resultado.grupos,
+        cdUser: cliente.cdUser,
+        cdPass: cliente.cdPass,
+      });
+
+      return ctx.reply(
+        `📋 <b>Encontré ${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}\n\n¿Confirmar y subir todo? (sí / no)`,
+        { parse_mode: "HTML" }
+      );
+    } catch (e) {
+      console.error("[TRABAJAR]", e.message);
+      return ctx.reply(`❌ Error: ${e.message}`);
+    }
   }
 
   // ── Config: esperando usuario de CD ──
@@ -269,23 +324,47 @@ bot.on("message", async (ctx) => {
         `❌ Página${invalidas.length > 1 ? "s" : ""} no disponible${invalidas.length > 1 ? "s" : ""}: ${invalidas.join(", ")}. Disponibles: ${[...sesion.paginasSinAsignar].join(", ")}`
       );
 
-    setSesion(chatId, { grupoActual: { paginas: nums }, fase: "aprender_asignando" });
+    setSesion(chatId, { grupoActual: { paginas: nums }, fase: "aprender_asignando", filtroActual: null });
 
     return ctx.reply(
-      `✅ Grupo: páginas <b>${nums.join(", ")}</b>\n\n¿A qué requerimiento corresponde?\n\n${formatearReqs(sesion.requerimientos)}`,
+      `✅ Grupo: páginas <b>${nums.join(", ")}</b>\n\n¿A qué requerimiento corresponde?\n\nEscribí algo para buscar en la lista, o <code>lista</code> para verla completa.`,
       { parse_mode: "HTML" }
     );
   }
 
   // ── Aprender: asignando requerimiento(s) ──
   if (sesion.fase === "aprender_asignando" && texto && !texto.startsWith("/")) {
-    const reqs = sesion.requerimientos;
-    const idxs = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n));
-    const invalidos = idxs.filter((i) => i < 0 || i >= reqs.length);
-    if (!idxs.length || invalidos.length)
-      return ctx.reply(`Escribí un número del 1 al ${reqs.length}, o varios separados por coma (ej: <code>9,13</code>).`, { parse_mode: "HTML" });
+    const listaActual = sesion.filtroActual || sesion.requerimientos;
 
-    const reqsElegidos = idxs.map((i) => reqs[i]);
+    // "lista" → mostrar todo paginado
+    if (texto.toLowerCase() === "lista") {
+      setSesion(chatId, { filtroActual: sesion.requerimientos });
+      return ctx.reply(
+        `📋 ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribí un número para seleccionar, o texto para seguir filtrando.`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    // Texto no numérico → buscar en la lista completa
+    const esNumerico = /^[\d,\s]+$/.test(texto);
+    if (!esNumerico) {
+      const filtro = texto.toLowerCase();
+      const filtrados = sesion.requerimientos.filter((r) => r.nombre.toLowerCase().includes(filtro));
+      if (!filtrados.length)
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra, o escribí <code>lista</code> para verlos todos.`, { parse_mode: "HTML" });
+      setSesion(chatId, { filtroActual: filtrados });
+      return ctx.reply(
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribí el número para seleccionar.`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const idxs = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n));
+    const invalidos = idxs.filter((i) => i < 0 || i >= listaActual.length);
+    if (!idxs.length || invalidos.length)
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}, o texto para buscar.`, { parse_mode: "HTML" });
+
+    const reqsElegidos = idxs.map((i) => listaActual[i]);
     const nuevosGrupos = reqsElegidos.map((req) => ({ ...sesion.grupoActual, req }));
     const grupos = [...(sesion.grupos || []), ...nuevosGrupos];
 
@@ -317,6 +396,49 @@ bot.on("message", async (ctx) => {
         `¿Algún otro grupo? ¿Con qué página seguimos?`,
       { parse_mode: "HTML" }
     );
+  }
+
+  // ── Trabajar: confirmación de subida ──
+  if (sesion.fase === "trabajar_confirmando" && texto && !texto.startsWith("/")) {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+      resetSesion(chatId);
+      return ctx.reply("Cancelado.");
+    }
+
+    const { buffer, gruposSubir, cdUser, cdPass } = sesion;
+    await ctx.reply("⏳ Subiendo a controldocumentario.com…");
+
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+      if (!sesCD.ok) {
+        resetSesion(chatId);
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
+      }
+
+      let ok = 0, fail = 0;
+      for (const grupo of gruposSubir) {
+        const paginasOrdenadas = grupo.paginas.slice().sort((a, b) => a - b);
+        const nombre = `${grupo.req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
+        try {
+          const bufferGrupo = await cortarPaginas(buffer, paginasOrdenadas);
+          await cdSubirArchivo(sesCD.page, grupo.req.href, bufferGrupo, nombre);
+          const entidad = grupo.req.entidad ? ` — ${escapeHtml(grupo.req.entidad)}` : "";
+          await ctx.reply(`✅ ${escapeHtml(grupo.req.nombre)}${entidad}`);
+          ok++;
+        } catch (e) {
+          const entidad = grupo.req.entidad ? ` — ${escapeHtml(grupo.req.entidad)}` : "";
+          await ctx.reply(`❌ ${escapeHtml(grupo.req.nombre)}${entidad}: ${e.message}`);
+          fail++;
+        }
+      }
+
+      resetSesion(chatId);
+      return ctx.reply(`Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`);
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      resetSesion(chatId);
+      return ctx.reply(`❌ Error durante la subida: ${e.message}`);
+    }
   }
 
   // ── Admin: mensaje sin reconocer ──

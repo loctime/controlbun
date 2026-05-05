@@ -61,3 +61,24 @@ export async function eliminarMapeo(clienteId, nombre) {
     await fs.unlink(path.join(DIR, String(clienteId), `${nombre}.json`));
   } catch {}
 }
+
+// Lee todos los mapeos en el formato nuevo del bot (por tipo de requerimiento).
+// Devuelve [{ nombre, paginas: [{ num, imagen, texto }] }]
+export async function leerTodosMapeosPorTipo(clienteId) {
+  const nombres = await listarMapeos(clienteId);
+  const resultado = [];
+  for (const nombre of nombres) {
+    try {
+      const data = JSON.parse(
+        await fs.readFile(path.join(DIR, String(clienteId), `${nombre}.json`), "utf8")
+      );
+      if (Array.isArray(data.paginas) && data.paginas.length > 0 && data.paginas[0]?.imagen) {
+        resultado.push({
+          nombre: data.nombre || nombre,
+          paginas: data.paginas,
+        });
+      }
+    } catch {}
+  }
+  return resultado;
+}
