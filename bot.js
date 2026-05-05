@@ -424,7 +424,7 @@ bot.on("message", async (ctx) => {
         for (const req of grupo.reqs) {
           const nombre = `${req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
           try {
-            await cdSubirArchivo(sesCD.page, req.href, bufferGrupo, nombre);
+            await cdSubirArchivo(sesCD.page, req.href, bufferGrupo, nombre, req.nombre, req.entidad);
             const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
             await ctx.reply(`✅ ${escapeHtml(req.nombre)}${entidad}`);
             ok++;

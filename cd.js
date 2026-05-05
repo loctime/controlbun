@@ -241,7 +241,21 @@ export async function cdLeerRequerimientos(page) {
       const celdas = Array.from(tr.querySelectorAll(":scope > td"));
       const tdRecurso = idxRecurso >= 0 ? celdas[idxRecurso] : null;
       const entidad = parsearRecurso(tdRecurso || celdas.find((td) => !td.contains(link)));
-      const href = link.href || "";
+
+      // Intentar obtener la URL por múltiples vías (CD usa JS en vez de href estándar)
+      let href = "";
+      const esUrlValida = (u) => u && !u.startsWith("javascript:") && u !== window.location.href && !u.endsWith("#");
+      if (esUrlValida(link.href)) href = link.href;
+      if (!href) {
+        for (const el of [link, tr]) {
+          const oc = el.getAttribute("onclick") || "";
+          const m = oc.match(/location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i) ||
+                    oc.match(/['"](\/?[A-Za-z][^\s'"]*\.aspx[^'"]*)['"]/i);
+          if (m) { try { href = new URL(m[1], window.location.href).href; } catch {} }
+          if (href) break;
+        }
+      }
+
       const clave = `${nombre}||${entidad}||${href}`;
       if (vistos.has(clave)) continue;
       vistos.add(clave);
@@ -297,11 +311,40 @@ export async function cdLeerTiposRequerimientos(page) {
   return tipos;
 }
 
-// Sube un archivo PDF a un requerimiento específico (por href del link).
-export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo) {
-  // Navegar al requerimiento
-  await page.goto(href, { waitUntil: "domcontentloaded" });
+// Navega al requerimiento haciendo click en la fila de la bandeja (fallback cuando no hay href).
+async function _navegarAReq(page, reqNombre, reqEntidad) {
+  await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    const sel = document.querySelector("select[name='tblRequerimientos_length']");
+    if (sel && sel.value !== "-1") {
+      sel.value = "-1";
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
+  if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
+  await page.waitForTimeout(2000);
+
+  const link = reqEntidad
+    ? page.locator("tr").filter({ hasText: reqEntidad }).locator("a").filter({ hasText: reqNombre }).first()
+    : page.locator("a").filter({ hasText: reqNombre }).first();
+  await link.click();
+  await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(1000);
+}
+
+// Sube un archivo PDF a un requerimiento específico.
+// reqNombre y reqEntidad se usan como fallback si href está vacío (CD usa JS navigation).
+export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNombre = "", reqEntidad = "") {
+  // Navegar al requerimiento
+  if (href && !href.startsWith("javascript:")) {
+    await page.goto(href, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1000);
+  } else {
+    console.log(`[CD] href vacío para "${reqNombre}" — navegando por click`);
+    await _navegarAReq(page, reqNombre, reqEntidad);
+  }
 
   // Esperar y hacer click en "Adjuntar archivo"
   const btnAdjuntar = page.locator('a, button').filter({ hasText: /adjuntar/i }).first();
