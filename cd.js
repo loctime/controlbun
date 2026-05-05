@@ -349,45 +349,59 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   // Captura de diagnóstico — se adjunta al error si algo falla
   const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
 
-  // Buscar el tab "Adjuntar archivo" en página principal y en todos los iframes.
-  // CD puede cargar el contenido del modal en un iframe interno (ASP.NET pattern).
-  const encontrarAdjuntar = async () => {
+  // Busca un locator en todos los frames (incluyendo iframes anidados).
+  // Usa count() para chequeo inmediato sin bloquear 30s como elementHandle().
+  const enFrames = async (fn) => {
     for (const frame of page.frames()) {
       try {
-        const el = frame.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
-        if ((await el.count()) > 0) return el;
+        const r = await fn(frame);
+        if (r) return r;
       } catch {}
     }
     return null;
   };
 
-  let btnAdjuntar = null;
-  for (let i = 0; i < 8 && !btnAdjuntar; i++) {
-    await page.waitForTimeout(500);
-    btnAdjuntar = await encontrarAdjuntar();
-  }
+  // Sondea cada 500ms hasta encontrar algo o agotar los intentos.
+  const poll = async (fn, intentos = 20) => {
+    for (let i = 0; i < intentos; i++) {
+      await page.waitForTimeout(500);
+      const r = await fn();
+      if (r) return r;
+    }
+    return null;
+  };
+
+  // 1. Buscar y clickar tab "Adjuntar archivo" (está dentro del fancybox-iframe de CD)
+  const btnAdjuntar = await poll(() =>
+    enFrames(async (frame) => {
+      const el = frame.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
+      return (await el.count()) > 0 ? el : null;
+    })
+  );
 
   if (!btnAdjuntar) {
-    const screenshot = await capturar();
     const err = new Error(`No encontré "Adjuntar archivo" (${page.frames().length} frames). URL: ${page.url()}`);
-    err.screenshot = screenshot;
+    err.screenshot = await capturar();
     throw err;
   }
   await btnAdjuntar.click();
-  await page.waitForTimeout(2000);
 
-  // El input de archivo puede estar en un iframe
-  let fileInput = null;
-  const frames = page.frames();
-  for (const frame of frames) {
-    fileInput = await frame.locator('input[type="file"]').first().elementHandle().catch(() => null);
-    if (fileInput) break;
-  }
-  if (!fileInput) {
-    fileInput = await page.locator('input[type="file"]').first().elementHandle();
+  // 2. Tras el click aparece una segunda iframe anidada con el form de subida.
+  //    Sondear hasta encontrar el input[type="file"] en cualquier frame.
+  const fileLocator = await poll(() =>
+    enFrames(async (frame) => {
+      const loc = frame.locator('input[type="file"]').first();
+      return (await loc.count()) > 0 ? loc : null;
+    })
+  );
+
+  if (!fileLocator) {
+    const err = new Error(`No encontré input[type="file"] (${page.frames().length} frames). URL: ${page.url()}`);
+    err.screenshot = await capturar();
+    throw err;
   }
 
-  // Subir el archivo desde buffer en memoria
+  // 3. Subir el archivo
   const { writeFile, unlink } = await import("fs/promises");
   const { join } = await import("path");
   const { tmpdir } = await import("os");
@@ -395,19 +409,17 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   await writeFile(tmpPath, bufferPdf);
 
   try {
-    await fileInput.setInputFiles(tmpPath);
+    await fileLocator.setInputFiles(tmpPath);
     await page.waitForTimeout(2000);
 
-    // Confirmar/enviar — buscar botón de confirmar en todos los frames
-    for (const frame of [page, ...page.frames()]) {
-      const btnEnviar = frame.locator('button, input[type="submit"]').filter({
+    // 4. Confirmar/enviar en cualquier frame
+    const btnEnviar = await enFrames(async (frame) => {
+      const btn = frame.locator('button, input[type="submit"]').filter({
         hasText: /enviar|confirmar|aceptar|guardar/i,
       }).first();
-      if (await btnEnviar.isVisible().catch(() => false)) {
-        await btnEnviar.click();
-        break;
-      }
-    }
+      return (await btn.isVisible().catch(() => false)) ? btn : null;
+    });
+    if (btnEnviar) await btnEnviar.click();
 
     await page.waitForTimeout(3000);
     return { ok: true };
