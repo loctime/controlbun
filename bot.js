@@ -3,7 +3,7 @@ import { Bot, InputFile } from "grammy";
 import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 import { guardarMapeo } from "./mapeos.js";
-import { cdCrearSesion, cdCerrarSesion, cdLogin, cdLeerRequerimientos } from "./cd.js";
+import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos } from "./cd.js";
 import { tonteria } from "./tonterias.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
@@ -105,33 +105,31 @@ bot.command("aprender", async (ctx) => {
 
   await ctx.reply("⏳ Conectando a controldocumentario.com…");
 
-  let sesionCD;
   try {
-    sesionCD = await cdCrearSesion();
-    const login = await cdLogin(sesionCD.page, cliente.cdUser, cliente.cdPass);
-    if (!login.ok) {
-      await cdCerrarSesion(sesionCD.context);
-      if (login.screenshot) {
-        await ctx.replyWithPhoto(new InputFile(login.screenshot, "login.jpg"), { caption: `❌ ${login.motivo}` });
+    const sesion = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+    if (!sesion.ok) {
+      if (sesion.screenshot) {
+        await ctx.replyWithPhoto(new InputFile(sesion.screenshot, "login.jpg"), { caption: `❌ ${sesion.motivo}` });
       } else {
-        await ctx.reply(`❌ ${login.motivo}`);
+        await ctx.reply(`❌ ${sesion.motivo}`);
       }
       return;
     }
-    const reqs = await cdLeerRequerimientos(sesionCD.page);
-    await cdCerrarSesion(sesionCD.context);
 
-    if (!reqs.length)
-      return ctx.reply("No encontré requerimientos pendientes en tu cuenta de CD.");
+    const nombres = await cdLeerTiposRequerimientos(sesion.page);
 
-    setSesion(chatId, { fase: "aprender_esperando_pdf", requerimientos: reqs });
+    if (!nombres.length)
+      return ctx.reply("No encontré tipos de requerimientos en tu cuenta de CD.");
+
+    const tiposUnicos = nombres.map((nombre) => ({ nombre, entidad: "", href: "" }));
+    setSesion(chatId, { fase: "aprender_esperando_pdf", requerimientos: tiposUnicos });
 
     return ctx.reply(
-      `✅ ${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} encontrado${reqs.length !== 1 ? "s" : ""}.\n\nMandame el PDF de referencia para configurar el mapeo.`,
+      `✅ ${tiposUnicos.length} tipo${tiposUnicos.length !== 1 ? "s" : ""} de requerimiento encontrado${tiposUnicos.length !== 1 ? "s" : ""}.\n\nMandame el PDF de referencia para configurar el mapeo.`,
       { parse_mode: "HTML" }
     );
   } catch (e) {
-    if (sesionCD) await cdCerrarSesion(sesionCD.context).catch(() => {});
+    cdInvalidarSesion(chatId);
     console.error("[APRENDER]", e.message);
     return ctx.reply(`❌ Error conectando a CD: ${e.message}`);
   }
@@ -226,20 +224,19 @@ bot.on("message", async (ctx) => {
     const cdPass = texto;
     await ctx.reply("⏳ Probando credenciales…");
 
-    let sesionCD;
     try {
-      sesionCD = await cdCrearSesion();
-      const login = await cdLogin(sesionCD.page, cdUser, cdPass);
-      await cdCerrarSesion(sesionCD.context);
+      // Invalidar sesión cacheada — credenciales nuevas requieren login fresco
+      cdInvalidarSesion(chatId);
+      const sesion = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
 
-      if (!login.ok) {
+      if (!sesion.ok) {
         resetSesion(chatId);
-        if (login.screenshot) {
-          await ctx.replyWithPhoto(new InputFile(login.screenshot, "login.jpg"), {
-            caption: `❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`,
+        if (sesion.screenshot) {
+          await ctx.replyWithPhoto(new InputFile(sesion.screenshot, "login.jpg"), {
+            caption: `❌ ${sesion.motivo}\n\nUsá /config para intentar de nuevo.`,
           });
         } else {
-          await ctx.reply(`❌ ${login.motivo}\n\nUsá /config para intentar de nuevo.`);
+          await ctx.reply(`❌ ${sesion.motivo}\n\nUsá /config para intentar de nuevo.`);
         }
         return;
       }
@@ -248,7 +245,7 @@ bot.on("message", async (ctx) => {
       resetSesion(chatId);
       return ctx.reply("✅ Credenciales guardadas y verificadas. Ya podés usar /aprender.");
     } catch (e) {
-      if (sesionCD) await cdCerrarSesion(sesionCD.context).catch(() => {});
+      cdInvalidarSesion(chatId);
       resetSesion(chatId);
       return ctx.reply(`❌ Error probando credenciales: ${e.message}\n\nUsá /config para intentar de nuevo.`);
     }
@@ -327,7 +324,7 @@ bot.on("message", async (ctx) => {
 
   // ── Registro con código ──
   const cliente = await cargarCliente(chatId);
-  if (cliente) return;
+  if (cliente) return ctx.reply("No conozco esas palabras... solo manejo comandos y PDF :)");
 
   if (esperandoCodigo.has(chatId)) {
     const pendiente = await consumirPendiente(texto);

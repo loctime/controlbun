@@ -9,7 +9,6 @@ async function getBrowser() {
   return _browser;
 }
 
-// Crea un contexto de browser nuevo para un cliente (sesión aislada)
 export async function cdCrearSesion() {
   const browser = await getBrowser();
   const context = await browser.newContext();
@@ -19,6 +18,52 @@ export async function cdCrearSesion() {
 
 export async function cdCerrarSesion(context) {
   try { await context.close(); } catch {}
+}
+
+// ── Caché de sesiones activas por usuario ────────────────────────────────────
+const _sesionesActivas = new Map(); // chatId → { context, page, ts }
+const SESION_TTL = 25 * 60 * 1000; // 25 minutos
+
+async function _sesionEsValida(sesion) {
+  if (Date.now() - sesion.ts > SESION_TTL) return false;
+  try {
+    await sesion.page.evaluate(() => true);
+    return !sesion.page.url().toLowerCase().includes("login");
+  } catch {
+    return false;
+  }
+}
+
+// Devuelve { ok: true, page, context } si hay sesión activa o puede loguear.
+// Devuelve { ok: false, motivo, screenshot? } si el login falla.
+export async function cdObtenerSesionActiva(chatId, cdUser, cdPass) {
+  const cached = _sesionesActivas.get(chatId);
+  if (cached && await _sesionEsValida(cached)) {
+    cached.ts = Date.now();
+    console.log("[CD] Sesión reutilizada para", chatId);
+    return { ok: true, page: cached.page, context: cached.context };
+  }
+  if (cached) {
+    await cdCerrarSesion(cached.context).catch(() => {});
+    _sesionesActivas.delete(chatId);
+  }
+  const sesion = await cdCrearSesion();
+  const login = await cdLogin(sesion.page, cdUser, cdPass);
+  if (!login.ok) {
+    await cdCerrarSesion(sesion.context).catch(() => {});
+    return { ok: false, motivo: login.motivo, screenshot: login.screenshot };
+  }
+  _sesionesActivas.set(chatId, { context: sesion.context, page: sesion.page, ts: Date.now() });
+  return { ok: true, page: sesion.page, context: sesion.context };
+}
+
+// Invalida la sesión cacheada (usar al cambiar credenciales o en errores graves)
+export function cdInvalidarSesion(chatId) {
+  const cached = _sesionesActivas.get(chatId);
+  if (cached) {
+    cdCerrarSesion(cached.context).catch(() => {});
+    _sesionesActivas.delete(chatId);
+  }
 }
 
 // Login en controldocumentario.com
@@ -95,21 +140,47 @@ export async function cdLeerRequerimientos(page) {
       return (s || "").replace(/\s+/g, " ").trim();
     }
 
-    function parsearEntidad(tr) {
-      const celdas = Array.from(tr.querySelectorAll(":scope > td"));
-      for (const td of celdas) {
-        const txt = textoPlano(td.textContent);
-        if (td.querySelector("a")) continue; // celda del link del requerimiento
-        // Saltar nombres de empresa (contienen tipo societario)
-        if (/unipersonal|s\.a\b|s\.r\.l|s\.a\.s|ltda|\bsrl\b|sociedad/i.test(txt)) continue;
-        // Buscar patente primero (más específico): AB123 / ABC1234 / AB123C
-        const patente = txt.match(/\b[A-Z]{2,3}\d{3,4}[A-Z]?\b/);
-        if (patente) return patente[0];
-        // Nombre de persona: 2-5 palabras, cada una empieza con mayúscula, sin números
-        if (/^([A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ]*\s+){1,4}[A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ]*\s*$/.test(txt) && !/\d/.test(txt)) return txt;
+    // Detecta el índice de la columna "Recurso" en la tabla (portado de panel.js)
+    function detectarIndiceColumnaRecurso() {
+      const ths = Array.from(document.querySelectorAll("th"));
+      for (let i = 0; i < ths.length; i++) {
+        if (/recurso/i.test(textoPlano(ths[i].textContent))) return i;
+      }
+      for (const tr of document.querySelectorAll("tr")) {
+        const celdas = tr.querySelectorAll("td, th");
+        const textoFila = textoPlano(tr.textContent);
+        if (/recurso/i.test(textoFila) && /requerimiento/i.test(textoFila)) {
+          for (let i = 0; i < celdas.length; i++) {
+            if (/recurso/i.test(textoPlano(celdas[i].textContent))) return i;
+          }
+        }
+      }
+      return -1;
+    }
+
+    // Extrae nombre de empleado o patente de la celda Recurso (portado de panel.js)
+    function parsearRecurso(td) {
+      if (!td) return "";
+      // Patente de vehículo
+      const txt = textoPlano(td.textContent);
+      const patente = txt.match(/\b[A-Z]{2,3}\d{3,4}[A-Z]?\b/);
+      if (patente) return patente[0];
+      // Nombre de empleado: primero buscar en el <a> del recurso
+      const linkRecurso = td.querySelector("a");
+      if (linkRecurso) return textoPlano(linkRecurso.textContent);
+      // Fallback: primera línea de innerText (antes de "Argentina", "Empleador", etc.)
+      const lineas = (td.innerText || "").split(/\n/).map((l) => l.trim()).filter(Boolean);
+      if (lineas.length > 0) {
+        const primeraLinea = lineas[0];
+        if (
+          /^([A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}\s+){1,}[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}$/.test(primeraLinea) &&
+          !/argentina|empleador|contrato|seguridad|higiene/i.test(primeraLinea)
+        ) return primeraLinea;
       }
       return "";
     }
+
+    const idxRecurso = detectarIndiceColumnaRecurso();
 
     // Leer sobres activos del widget (lista de nombres de requerimientos)
     function leerSobresActivos() {
@@ -167,7 +238,9 @@ export async function cdLeerRequerimientos(page) {
         if (!/pend envio|pend envío/i.test(txtFila)) continue;
       }
 
-      const entidad = parsearEntidad(tr);
+      const celdas = Array.from(tr.querySelectorAll(":scope > td"));
+      const tdRecurso = idxRecurso >= 0 ? celdas[idxRecurso] : null;
+      const entidad = parsearRecurso(tdRecurso || celdas.find((td) => !td.contains(link)));
       const href = link.href || "";
       const clave = `${nombre}||${entidad}||${href}`;
       if (vistos.has(clave)) continue;
@@ -177,6 +250,44 @@ export async function cdLeerRequerimientos(page) {
     }
 
     return resultado;
+  });
+}
+
+// Lee todos los TIPOS únicos de requerimientos de la cuenta (para /aprender).
+// Sin filtro de estado: escanea todas las filas visibles + widget Sobres activos.
+export async function cdLeerTiposRequerimientos(page) {
+  await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+
+  // Expandir tabla a todos los registros
+  await page.evaluate(() => {
+    const sel = document.querySelector("select[name='tblRequerimientos_length']");
+    if (sel && sel.value !== "-1") {
+      sel.value = "-1";
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  // Hacer click en Buscar si existe (igual que cdLeerRequerimientos)
+  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
+  if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
+  await page.waitForTimeout(2000);
+
+  return await page.evaluate(() => {
+    function textoPlano(s) {
+      return (s || "").replace(/\s+/g, " ").trim();
+    }
+
+    // El dropdown de filtro de la bandeja tiene "Sobres activos" como primera opción,
+    // seguido de todos los tipos de requerimientos de la cuenta.
+    for (const sel of document.querySelectorAll("select")) {
+      const opciones = Array.from(sel.options).map((o) => textoPlano(o.textContent)).filter(Boolean);
+      if (opciones.some((t) => /sobres\s*activos/i.test(t))) {
+        // Devolver todo excepto la opción "Sobres activos" y opciones vacías
+        return opciones.filter((t) => t && !/sobres\s*activos/i.test(t)).sort();
+      }
+    }
+    return [];
   });
 }
 

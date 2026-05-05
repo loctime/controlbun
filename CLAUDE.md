@@ -71,6 +71,19 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude p
 
 ## Decisiones de arquitectura importantes
 
+### Sesión de CD cacheada por usuario
+`cdObtenerSesionActiva(chatId, cdUser, cdPass)` mantiene la sesión de Playwright abierta por 25 minutos por usuario. Si la página sigue logueada, la reutiliza sin hacer login de nuevo. Invalida con `cdInvalidarSesion(chatId)` en errores o al cambiar credenciales.
+
+### Dos funciones de lectura de CD separadas
+- `cdLeerTiposRequerimientos(page)` — para /aprender: lee el dropdown de filtro de la bandeja que tiene "Sobres activos" como primera opción. Devuelve todos los TIPOS de requerimientos de la cuenta (lista completa, sin filtrar por período ni estado).
+- `cdLeerRequerimientos(page)` — para /trabajar: lee filas de la tabla filtrando por "Sobres activos" y extrae entidades (nombre de empleado o patente) por la columna "Recurso".
+
+### Entidades (empleados/vehículos) leídas por columna "Recurso"
+`parsearRecurso(td)` portado de panel.js de la extensión. Detecta el índice de la columna "Recurso" por el `<th>`. Extrae: patente (regex), link del recurso, o primera línea de innerText antes de "Argentina/Empleador/Contrato".
+
+### Lista de tipos para /aprender — sin entidades, sin duplicados
+El mapeo es general para todos los empleados/vehículos. El flujo /aprender muestra tipos únicos (ej: "Recibos de haberes ram") sin entidades específicas. Los hrefs específicos se buscan en /trabajar al momento de subir.
+
 ### Playwright para renderizado de PDFs
 pdfjs + node-canvas falla con imágenes embebidas en Node.js (`"Image or Canvas expected"`).
 Solución: Playwright lanza un Chromium headless y ejecuta pdfjs v3 desde CDN, igual que la extensión.
@@ -103,9 +116,11 @@ No agregar chain-of-thought — empeora las asignaciones.
 |---|---|
 | Renderizado PDF (Playwright + pdfjs CDN) | ✅ Funcionando |
 | Corte de PDFs (pdf-lib) | ✅ Implementado |
-| Flujo /config (credenciales CD) | ✅ Completo |
-| Flujo /aprender (mapeo) | ✅ Completo |
-| cd.js: login + leer reqs | ✅ Implementado (pendiente prueba real) |
+| Flujo /config (credenciales CD) | ✅ Completo y probado |
+| Flujo /aprender (mapeo) | ✅ Completo y probado |
+| cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
+| cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
+| cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo | ✅ Estructura base (ajustar selectores con CD real) |
 | claude.js: compararPaginasConReferencia | ✅ Portado desde extensión |
 | Flujo Trabajar en bot.js | ⏳ Pendiente |
