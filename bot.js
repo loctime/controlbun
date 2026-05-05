@@ -194,6 +194,16 @@ bot.command("aprender", async (ctx) => {
   }
 });
 
+bot.command("unico", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+  setSesion(chatId, { fase: "unico_esperando_pdf" });
+  return ctx.reply("📎 Modo único activado. Mandame el PDF a subir.");
+});
+
 bot.command("listo", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const sesion = getSesion(chatId);
@@ -230,6 +240,36 @@ bot.on("message", async (ctx) => {
   if (ctx.message.document?.mime_type === "application/pdf") {
     const cliente = await cargarCliente(chatId);
     if (!cliente) return ctx.reply("No te conozco. ¿Contraseña?");
+
+    // Modo único: subir PDF sin procesar
+    if (sesion.fase === "unico_esperando_pdf") {
+      await ctx.reply("⏳ Cargando requerimientos de CD…");
+      try {
+        const buffer = await bajarPdf(ctx);
+        const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+        if (!sesCD.ok) {
+          resetSesion(chatId);
+          if (sesCD.screenshot) {
+            return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+          }
+          return ctx.reply(`❌ ${sesCD.motivo}`);
+        }
+        const reqs = await cdLeerRequerimientos(sesCD.page);
+        if (!reqs.length) {
+          resetSesion(chatId);
+          return ctx.reply("No hay requerimientos pendientes en CD.");
+        }
+        setSesion(chatId, { fase: "unico_buscando_req", buffer, requerimientos: reqs, filtroActual: null, cdUser: cliente.cdUser, cdPass: cliente.cdPass });
+        return ctx.reply(
+          `📋 ${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}.\n\n${formatearReqs(reqs)}\n\nEscribí el nombre o parte para buscar, o <code>lista</code> para verlos todos.`,
+          { parse_mode: "HTML" }
+        );
+      } catch (e) {
+        cdInvalidarSesion(chatId);
+        resetSesion(chatId);
+        return ctx.reply(`❌ Error: ${e.message}`);
+      }
+    }
 
     // Aprender: PDF de referencia
     if (sesion.fase === "aprender_esperando_pdf") {
@@ -504,6 +544,75 @@ bot.on("message", async (ctx) => {
     }
   }
 
+  // ── Único: buscando requerimiento ──
+  if (sesion.fase === "unico_buscando_req" && texto && !texto.startsWith("/")) {
+    const listaActual = sesion.filtroActual || sesion.requerimientos;
+
+    if (texto.toLowerCase() === "lista") {
+      setSesion(chatId, { filtroActual: sesion.requerimientos });
+      return ctx.reply(
+        `📋 ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribí un número para seleccionar, o texto para filtrar.`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const esNumerico = /^\d+$/.test(texto.trim());
+    if (!esNumerico) {
+      const filtro = texto.toLowerCase();
+      const filtrados = sesion.requerimientos.filter((r) => r.nombre.toLowerCase().includes(filtro));
+      if (!filtrados.length)
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra, o escribí <code>lista</code>.`, { parse_mode: "HTML" });
+      setSesion(chatId, { filtroActual: filtrados });
+      return ctx.reply(
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribí el número para seleccionar.`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const idx = parseInt(texto.trim()) - 1;
+    if (idx < 0 || idx >= listaActual.length)
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}.`);
+
+    const req = listaActual[idx];
+    setSesion(chatId, { fase: "unico_confirmando", reqElegido: req });
+    const entidad = req.entidad ? ` — <i>${escapeHtml(req.entidad)}</i>` : "";
+    return ctx.reply(
+      `📄 Vas a subir el PDF a:\n<b>${escapeHtml(req.nombre)}</b>${entidad}\n\n¿Confirmar? (sí / no)`,
+      { parse_mode: "HTML" }
+    );
+  }
+
+  // ── Único: confirmando subida ──
+  if (sesion.fase === "unico_confirmando" && texto && !texto.startsWith("/")) {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+      resetSesion(chatId);
+      return ctx.reply("Cancelado.");
+    }
+
+    const { buffer, reqElegido, cdUser, cdPass } = sesion;
+    await ctx.reply("⏳ Subiendo a controldocumentario.com…");
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+      if (!sesCD.ok) {
+        resetSesion(chatId);
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
+      }
+      const nombre = `${reqElegido.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
+      await cdSubirArchivo(sesCD.page, reqElegido.href, buffer, nombre, reqElegido.nombre, reqElegido.entidad);
+      const entidad = reqElegido.entidad ? ` — ${escapeHtml(reqElegido.entidad)}` : "";
+      resetSesion(chatId);
+      return ctx.reply(`✅ ${escapeHtml(reqElegido.nombre)}${entidad}`);
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      resetSesion(chatId);
+      const caption = `❌ Error: ${e.message}`;
+      if (e.screenshot) {
+        return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption });
+      }
+      return ctx.reply(caption);
+    }
+  }
+
   // ── Admin: mensaje sin reconocer ──
   if (chatId === String(ADMIN_ID)) return ctx.reply(tonteria());
 
@@ -538,6 +647,7 @@ async function setupCommands() {
     { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
     { command: "aprender", description: "Configurar mapeo de documentos" },
     { command: "listo", description: "Finalizar mapeo actual" },
+    { command: "unico", description: "Subir un PDF directo a un requerimiento (sin IA)" },
   ];
   await bot.api.setMyCommands(base, { scope: { type: "default" } });
   if (ADMIN_ID) {
