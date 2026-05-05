@@ -330,8 +330,9 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
     ? page.locator("tr").filter({ hasText: reqEntidad }).locator("a").filter({ hasText: reqNombre }).first()
     : page.locator("a").filter({ hasText: reqNombre }).first();
   await link.click();
-  await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(1000);
+  // El click abre un modal sobre la bandeja (sin navegar). Esperar que aparezca.
+  await page.locator("text=Detalle del requerimiento").waitFor({ timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(500);
 }
 
 // Sube un archivo PDF a un requerimiento específico.
@@ -349,18 +350,19 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   // Captura de diagnóstico — se adjunta al error si algo falla
   const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
 
-  // Esperar y hacer click en "Adjuntar archivo"
-  const btnAdjuntar = page.locator('a, button').filter({ hasText: /adjuntar/i }).first();
+  // Hacer click en el tab "Adjuntar archivo" del modal.
+  // CD lo renderiza como tab (puede ser li, span, a, td — no necesariamente button).
+  const btnAdjuntar = page.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
   try {
-    await btnAdjuntar.waitFor({ timeout: 15000 });
+    await btnAdjuntar.waitFor({ timeout: 10000 });
   } catch {
     const screenshot = await capturar();
-    const err = new Error(`No encontré el botón "Adjuntar" en la página. URL: ${page.url()}`);
+    const err = new Error(`No encontré el tab "Adjuntar archivo" en el modal. URL: ${page.url()}`);
     err.screenshot = screenshot;
     throw err;
   }
   await btnAdjuntar.click();
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
 
   // El input de archivo puede estar en un iframe
   let fileInput = null;
