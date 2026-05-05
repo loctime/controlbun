@@ -3,3 +3,4 @@ node_modules/
 mapeos/
 clientes/
 pendientes.json
+runtime.json

@@ -4,7 +4,7 @@ import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, a
 import { pdfAImagenes, cortarPaginas } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo } from "./cd.js";
-import { matchearPaginasConReqs } from "./claude.js";
+import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
@@ -80,6 +80,23 @@ async function guardarSesionMapeo(chatId) {
 bot.command("miid", (ctx) =>
   ctx.reply(`Tu chat ID es: <code>${ctx.chat.id}</code>`, { parse_mode: "HTML" })
 );
+
+bot.command("modelo", async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
+  const arg = ctx.match?.trim().toLowerCase();
+  if (!arg) {
+    return ctx.reply(`🤖 Modelo actual: <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+  }
+  if (arg === "gemini") {
+    setAiProvider("gemini");
+    return ctx.reply(`✅ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+  }
+  if (arg === "claude" || arg === "haiku") {
+    setAiProvider("claude");
+    return ctx.reply(`✅ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+  }
+  return ctx.reply("❌ Opciones: <code>/modelo claude</code> o <code>/modelo gemini</code>", { parse_mode: "HTML" });
+});
 
 bot.command("nuevocliente", async (ctx) => {
   if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
@@ -525,7 +542,7 @@ async function setupCommands() {
   await bot.api.setMyCommands(base, { scope: { type: "default" } });
   if (ADMIN_ID) {
     await bot.api.setMyCommands(
-      [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }],
+      [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }, { command: "modelo", description: "Ver/cambiar IA: claude o gemini" }],
       { scope: { type: "chat", chat_id: Number(ADMIN_ID) } }
     );
   }

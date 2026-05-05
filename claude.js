@@ -1,19 +1,32 @@
+import { readFileSync, writeFileSync } from "fs";
 import Anthropic from "@anthropic-ai/sdk";
 
-const AI_PROVIDER = process.env.AI_PROVIDER || "claude"; // claude | ollama | gemini
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llava";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
-
-const client = AI_PROVIDER === "claude" ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODELO = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 
-const _providerLabel = AI_PROVIDER === "ollama" ? `Ollama (${OLLAMA_MODEL})`
-  : AI_PROVIDER === "gemini" ? `Gemini (${GEMINI_MODEL})`
+let aiProvider = process.env.AI_PROVIDER || "claude"; // claude | gemini | ollama
+try {
+  const rt = JSON.parse(readFileSync("runtime.json", "utf8"));
+  if (rt.aiProvider) aiProvider = rt.aiProvider;
+} catch {}
+
+const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const _label = () => aiProvider === "ollama" ? `Ollama (${OLLAMA_MODEL})`
+  : aiProvider === "gemini" ? `Gemini (${GEMINI_MODEL})`
   : `Claude (${MODELO})`;
-console.log(`[AI] Usando: ${_providerLabel}`);
+console.log(`[AI] Usando: ${_label()}`);
+
+export function setAiProvider(p) {
+  aiProvider = p;
+  try { writeFileSync("runtime.json", JSON.stringify({ aiProvider: p })); } catch {}
+  console.log(`[AI] Cambiado a: ${_label()}`);
+}
+export function getCurrentProviderLabel() { return _label(); }
 
 function anthropicAOpenAI(content) {
   return content.map((item) => {
@@ -37,20 +50,20 @@ async function _llamarOpenAICompat({ baseUrl, apiKey, model, messages, max_token
 }
 
 async function llamarClaude(body) {
-  console.log(`[AI] Llamando ${_providerLabel}...`);
+  console.log(`[AI] Llamando ${_label()}...`);
 
   const messages = body.messages.map((msg) => ({
     role: msg.role,
     content: Array.isArray(msg.content) ? anthropicAOpenAI(msg.content) : msg.content,
   }));
 
-  if (AI_PROVIDER === "ollama") {
+  if (aiProvider === "ollama") {
     return _llamarOpenAICompat({ baseUrl: `${OLLAMA_BASE_URL}/v1`, apiKey: "ollama", model: OLLAMA_MODEL, messages, max_tokens: body.max_tokens });
   }
-  if (AI_PROVIDER === "gemini") {
+  if (aiProvider === "gemini") {
     return _llamarOpenAICompat({ baseUrl: GEMINI_BASE_URL, apiKey: GEMINI_API_KEY, model: GEMINI_MODEL, messages, max_tokens: body.max_tokens });
   }
-  return await client.messages.create(body);
+  return await anthropicClient.messages.create(body);
 }
 
 // Portado directamente de background.js de la extensión.
