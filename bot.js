@@ -241,10 +241,11 @@ bot.on("message", async (ctx) => {
       if (!resultado || !resultado.grupos.length)
         return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
 
+      const totalSubidas = resultado.grupos.reduce((s, g) => s + g.reqs.length, 0);
       const lineas = resultado.grupos.map((g, i) => {
-        const entidad = g.req.entidad ? ` — <i>${escapeHtml(g.req.entidad)}</i>` : "";
         const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
-        return `${i + 1}. <b>${escapeHtml(g.req.nombre)}</b>${entidad} → págs. ${pags}`;
+        const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
+        return `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> → págs. ${pags}\n${reqsStr}`;
       });
       if (resultado.sinAsignar.length)
         lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
@@ -258,7 +259,7 @@ bot.on("message", async (ctx) => {
       });
 
       return ctx.reply(
-        `📋 <b>Encontré ${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}\n\n¿Confirmar y subir todo? (sí / no)`,
+        `📋 <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n\n")}\n\n¿Confirmar y subir todo? (sí / no)`,
         { parse_mode: "HTML" }
       );
     } catch (e) {
@@ -418,17 +419,20 @@ bot.on("message", async (ctx) => {
       let ok = 0, fail = 0;
       for (const grupo of gruposSubir) {
         const paginasOrdenadas = grupo.paginas.slice().sort((a, b) => a - b);
-        const nombre = `${grupo.req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
-        try {
-          const bufferGrupo = await cortarPaginas(buffer, paginasOrdenadas);
-          await cdSubirArchivo(sesCD.page, grupo.req.href, bufferGrupo, nombre);
-          const entidad = grupo.req.entidad ? ` — ${escapeHtml(grupo.req.entidad)}` : "";
-          await ctx.reply(`✅ ${escapeHtml(grupo.req.nombre)}${entidad}`);
-          ok++;
-        } catch (e) {
-          const entidad = grupo.req.entidad ? ` — ${escapeHtml(grupo.req.entidad)}` : "";
-          await ctx.reply(`❌ ${escapeHtml(grupo.req.nombre)}${entidad}: ${e.message}`);
-          fail++;
+        // Cortar una vez, subir a todos los reqs del grupo
+        const bufferGrupo = await cortarPaginas(buffer, paginasOrdenadas);
+        for (const req of grupo.reqs) {
+          const nombre = `${req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
+          try {
+            await cdSubirArchivo(sesCD.page, req.href, bufferGrupo, nombre);
+            const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
+            await ctx.reply(`✅ ${escapeHtml(req.nombre)}${entidad}`);
+            ok++;
+          } catch (e) {
+            const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
+            await ctx.reply(`❌ ${escapeHtml(req.nombre)}${entidad}: ${e.message}`);
+            fail++;
+          }
         }
       }
 

@@ -190,10 +190,13 @@ Respondé SOLO JSON válido, sin texto extra:
 }
 
 // Matching para el flujo /trabajar del bot.
-// mapeos: [{ nombre, paginas: [{ num, imagen, texto }] }]  — tipos aprendidos
+// mapeos: [{ nombre, paginas: [{ num, imagen, texto }] }]  — tipos aprendidos con imágenes de referencia
 // reqsPendientes: [{ nombre, entidad, href }]               — reqs pendientes leídos de CD
 // nuevasPaginas: [{ pagina, base64 }]                       — páginas del PDF nuevo
-// Devuelve { grupos: [{ req, paginas: [N] }], sinAsignar: [N] } o null
+//
+// Agrupa páginas por entidad (empleado/vehículo) y devuelve TODOS los reqs que le corresponden a cada grupo.
+// Un mismo grupo puede subirse a múltiples reqs si el usuario así lo configuró en /aprender.
+// Devuelve { grupos: [{ entidad, paginas: [N], reqs: [req1, req2] }], sinAsignar: [N] } o null
 export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes) {
   if (!nuevasPaginas?.length || !mapeos?.length || !reqsPendientes?.length) return null;
 
@@ -223,26 +226,30 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
     type: "text",
     text: `
 
-TAREA: para cada página nueva, determiná a qué requerimiento pendiente pertenece.
+TAREA: agrupar las páginas nuevas por entidad e identificar TODOS los requerimientos pendientes que le corresponden a cada grupo.
 
-Proceso:
-1. TIPO DE DOCUMENTO:
-   - Compará visualmente la estructura con los Tipos aprendidos.
-   - Si dos tipos tienen referencias visuales similares o idénticas → LEÉ el título, encabezado o texto del documento para distinguirlos (ej: "seguro automotor" vs "seguro técnico" → leer el nombre de la póliza).
-2. ENTIDAD: Leé el nombre del empleado o la patente del vehículo de la página.
-3. REQ. PENDIENTE: Elegí el número de la lista que coincida con tipo + entidad.
-   El nombre del req pendiente puede incluir el período (ej: "Pago del seguro automotor-2026-4") — ignorar ese sufijo al comparar con el tipo aprendido "Pago del seguro automotor".
+PASO 1 — AGRUPAR POR ENTIDAD:
+Leé el nombre del empleado o la patente del vehículo en cada página.
+Agrupa las páginas que pertenecen a la misma entidad (misma persona o mismo vehículo).
+
+PASO 2 — IDENTIFICAR REQUERIMIENTOS:
+Para cada grupo, encontrá TODOS los requerimientos pendientes que coinciden:
+- El tipo de documento se identifica comparando visualmente con los Tipos aprendidos.
+- El nombre del req puede incluir un período (ej: "Pago del seguro automotor-2026-4") — ignorarlo al comparar con el tipo aprendido "Pago del seguro automotor".
+- Si dos Tipos aprendidos tienen referencias visuales idénticas o muy similares, incluí los reqs de AMBOS tipos.
+- Un mismo grupo puede tener varios reqs (ej: el mismo PDF va a "seguro automotor" Y "seguro técnico").
 
 Respondé SOLO JSON válido, sin texto extra:
 {
-  "paginas": [
-    { "pagina_nueva": 1, "req_num": 3, "entidad_leida": "García Juan" },
-    { "pagina_nueva": 2, "req_num": 3, "entidad_leida": "García Juan" },
-    { "pagina_nueva": 5, "req_num": null, "entidad_leida": "" }
-  ]
+  "grupos": [
+    { "entidad": "UMM906", "paginas": [1, 4], "reqs": [12, 13] },
+    { "entidad": "HTC822", "paginas": [2, 3], "reqs": [14, 15] }
+  ],
+  "sinAsignar": []
 }
 
-req_num: número de la lista de requerimientos pendientes (1-based), o null si no corresponde a ninguno.`,
+reqs: array de números (1-based) de la lista de reqs pendientes. Puede ser uno o varios.
+sinAsignar: números de página que no corresponden a ningún requerimiento.`,
   });
 
   const resp = await llamarClaude({
@@ -263,20 +270,19 @@ req_num: número de la lista de requerimientos pendientes (1-based), o null si n
     if (m) try { parsed = JSON.parse(m[0]); } catch {}
   }
 
-  if (!parsed?.paginas?.length) return null;
+  if (!parsed?.grupos?.length) return null;
 
-  const grupos = new Map();
-  const sinAsignar = [];
-
-  for (const item of parsed.paginas) {
-    const num = item.req_num;
-    if (!num || num < 1 || num > reqsPendientes.length) {
-      sinAsignar.push(item.pagina_nueva);
-      continue;
+  const grupos = [];
+  for (const g of parsed.grupos) {
+    if (!g.paginas?.length) continue;
+    const reqs = (g.reqs || [])
+      .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
+      .filter(Boolean);
+    if (reqs.length > 0) {
+      grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs });
     }
-    if (!grupos.has(num)) grupos.set(num, { req: reqsPendientes[num - 1], paginas: [] });
-    grupos.get(num).paginas.push(item.pagina_nueva);
   }
 
-  return { grupos: Array.from(grupos.values()), sinAsignar };
+  const sinAsignar = Array.isArray(parsed.sinAsignar) ? parsed.sinAsignar : [];
+  return grupos.length ? { grupos, sinAsignar } : null;
 }
