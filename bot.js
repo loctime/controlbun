@@ -101,6 +101,43 @@ bot.command("config", async (ctx) => {
   );
 });
 
+bot.command("pendientes", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+
+  await ctx.reply("⏳ Consultando requerimientos pendientes…");
+  try {
+    const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+    if (!sesCD.ok) {
+      if (sesCD.screenshot) {
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      }
+      return ctx.reply(`❌ ${sesCD.motivo}`);
+    }
+
+    const reqs = await cdLeerRequerimientos(sesCD.page);
+    if (!reqs.length)
+      return ctx.reply("✅ No hay requerimientos pendientes en CD.");
+
+    const lineas = reqs.map((r, i) => {
+      const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
+      return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
+    });
+
+    return ctx.reply(
+      `📋 <b>${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}`,
+      { parse_mode: "HTML" }
+    );
+  } catch (e) {
+    cdInvalidarSesion(chatId);
+    console.error("[PENDIENTES]", e.message);
+    return ctx.reply(`❌ Error: ${e.message}`);
+  }
+});
+
 bot.command("aprender", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const cliente = await cargarCliente(chatId);
@@ -481,6 +518,7 @@ async function setupCommands() {
   const base = [
     { command: "miid", description: "Ver tu chat ID" },
     { command: "config", description: "Configurar credenciales de controldocumentario.com" },
+    { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
     { command: "aprender", description: "Configurar mapeo de documentos" },
     { command: "listo", description: "Finalizar mapeo actual" },
   ];

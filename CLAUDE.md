@@ -116,6 +116,29 @@ Igual que la extensión. Claude ve TODAS las refs + TODAS las páginas nuevas en
 No cambiar a multi-llamada — el costo sube y no mejora la precisión.
 No agregar chain-of-thought — empeora las asignaciones.
 
+## AI Provider
+
+`claude.js` soporta tres providers, controlados por `AI_PROVIDER` en `.env`:
+
+| Valor | Descripción |
+|---|---|
+| `claude` | Producción — Anthropic API (Haiku por defecto) |
+| `gemini` | Desarrollo — Google AI Studio, gratis. Modelo: `gemini-2.5-flash` |
+| `ollama` | Local — requiere GPU dedicada; con APU integrada es demasiado lento |
+
+Variables adicionales en `.env`:
+```
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
+
+# Ollama (si se usa)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=hf.co/xtuner/llava-phi-3-mini-gguf:F16
+```
+
+> La key de Gemini debe crearse desde **aistudio.google.com/apikey** (no desde Google Cloud Console — esas keys tienen cuotas en 0).
+
 ## Estado actual
 
 | Módulo | Estado |
@@ -124,32 +147,63 @@ No agregar chain-of-thought — empeora las asignaciones.
 | Corte de PDFs (pdf-lib) | ✅ Implementado |
 | Flujo /config (credenciales CD) | ✅ Completo y probado |
 | Flujo /aprender (mapeo) | ✅ Completo y probado |
+| Flujo /pendientes (listar reqs pendientes) | ✅ Implementado |
 | cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
-| cd.js: subir archivo | ✅ Estructura base (ajustar selectores con CD real) |
-| claude.js: compararPaginasConReferencia | ✅ Portado desde extensión |
+| cd.js: subir archivo (adjuntar + continuar + enviar) | ✅ Probado y funcionando |
+| claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Implementado |
+| claude.js: matchearPaginasConReqs | ✅ Funcionando con Gemini |
 | Flujo Trabajar en bot.js | ✅ Implementado |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
-| Prueba end-to-end con CD real | ⏳ Pendiente |
+| Prueba end-to-end completa con clientes reales | ⏳ Pendiente |
+
+## Flujo de subida a CD (cdSubirArchivo)
+
+El flujo real de CD tiene 5 pasos que Playwright ejecuta en orden:
+
+1. **Navegar al req** — por `href` si existe, o click en la bandeja
+2. **Click "Adjuntar archivo"** — en el frame `BandejaDetalle`
+3. **Asignar PDF** — `setInputFiles` en `input[type=file]` de `BandejaUpload`
+4. **Esperar "Archivo cargado con exito"** — confirma que el servidor recibió el archivo, luego click "Continuar"
+5. **Click "Enviar"** — via `__doPostBack('btnEnviar','')` directo en el frame `BandejaDetalle` (el botón tiene `onclick` con `ControlaEnviar()` que valida el archivo antes de postback)
+
+> El botón Enviar es `<input type="submit" id="btnEnviar">`. Se llama `__doPostBack` directamente para evitar race conditions con `ControlaEnviar()`.
+
+## Botón Buscar en la bandeja
+
+CD tiene un retraso antes de que el botón "Buscar" esté listo. `_clickBuscarYEsperar` reintenta:
+1. Click en Buscar → espera 3s
+2. Verifica filas reales (≥4 `td` + link) — si no hay, espera 3s más y reintenta
 
 ## Lo que NO hacer
 
 - No usar `pdfjs-dist` + `canvas` en Node.js — usa siempre Playwright para renderizar
-- No agregar chain-of-thought al prompt de Claude para matching
-- No cambiar el flujo de 1 sola llamada a Claude por matching
+- No agregar chain-of-thought al prompt de Claude/Gemini para matching
+- No cambiar el flujo de 1 sola llamada a AI por matching
 - No commitear `.env`, `mapeos/`, `clientes/`, `pendientes.json` — datos sensibles por cliente
 - No guardar las credenciales de CD en texto plano en otro lado que no sea el JSON del cliente
+- No crear key de Gemini desde Google Cloud Console — usar aistudio.google.com
 
-## Para continuar
+## Para continuar / debug
 
-Si algo no funciona en el flujo de CD (login, leer reqs, subir):
+Script de prueba de subida sin Telegram ni IA:
+```
+node test-subir.js <archivo.pdf> [filtro_nombre_req]
+# Ejemplo:
+node test-subir.js 111111.pdf "F 931"
+```
+
+Si algo no funciona en el flujo de CD:
 - Verificar selectores con `headless: false` en `cd.js` → `chromium.launch({ headless: false })`
 - Los iframes de CD son el punto más frágil — revisar `cdSubirArchivo` si falla la subida
+- Agregar `await page.screenshot(...)` después de cada paso para ver el estado visual
 
 Variables de entorno necesarias en `.env`:
 ```
 TG_TOKEN=...
 ANTHROPIC_API_KEY=...
 ADMIN_CHAT_ID=...
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
 ```

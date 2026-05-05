@@ -115,6 +115,31 @@ export async function cdLogin(page, user, pass) {
   }
 }
 
+// Hace click en Buscar y espera que aparezcan filas en la tabla.
+// Si tras la espera no hay filas, reintenta el click una vez más.
+async function _clickBuscarYEsperar(page) {
+  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
+  if (!await btnBuscar.isVisible().catch(() => false)) return;
+
+  const hayFilas = () => page.evaluate(() => {
+    return Array.from(document.querySelectorAll("tr")).some((tr) => {
+      const tds = tr.querySelectorAll(":scope > td");
+      return tds.length >= 4 && tr.querySelector("a");
+    });
+  });
+
+  await btnBuscar.click();
+  console.log("[CD] Click Buscar — esperando tabla…");
+  await page.waitForTimeout(3000);
+
+  if (!await hayFilas()) {
+    console.log("[CD] Tabla vacía tras primer click, reintentando Buscar…");
+    await page.waitForTimeout(3000);
+    await btnBuscar.click();
+    await page.waitForTimeout(3000);
+  }
+}
+
 // Lee todos los requerimientos pendientes de la bandeja.
 // Devuelve [{ nombre, entidad, href }]
 export async function cdLeerRequerimientos(page) {
@@ -130,10 +155,7 @@ export async function cdLeerRequerimientos(page) {
     }
   });
 
-  // Hacer click en Buscar si existe
-  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
-  if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
-  await page.waitForTimeout(2000);
+  await _clickBuscarYEsperar(page);
 
   return await page.evaluate(() => {
     function textoPlano(s) {
@@ -282,10 +304,7 @@ export async function cdLeerTiposRequerimientos(page) {
     }
   });
 
-  // Hacer click en Buscar si existe (igual que cdLeerRequerimientos)
-  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
-  if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
-  await page.waitForTimeout(2000);
+  await _clickBuscarYEsperar(page);
 
   const leerDropdown = () => page.evaluate(() => {
     function textoPlano(s) {
@@ -314,7 +333,9 @@ export async function cdLeerTiposRequerimientos(page) {
 // Navega al requerimiento haciendo click en la fila de la bandeja (fallback cuando no hay href).
 async function _navegarAReq(page, reqNombre, reqEntidad) {
   await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
+
+  // Expandir tabla a todos los registros (igual que cdLeerRequerimientos)
   await page.evaluate(() => {
     const sel = document.querySelector("select[name='tblRequerimientos_length']");
     if (sel && sel.value !== "-1") {
@@ -322,169 +343,219 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     }
   });
-  const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
-  if (await btnBuscar.isVisible().catch(() => false)) await btnBuscar.click();
-  await page.waitForTimeout(2000);
+  // Click en Buscar fuerza reload completo de DataTables (clave para ver todos los reqs)
+  await _clickBuscarYEsperar(page);
 
-  const link = reqEntidad
-    ? page.locator("tr").filter({ hasText: reqEntidad }).locator("a").filter({ hasText: reqNombre }).first()
-    : page.locator("a").filter({ hasText: reqNombre }).first();
-  await link.click();
-  // Modal AJAX sobre la bandeja — esperar que cargue (puede estar en un iframe interno).
+  // Esperar a que la tabla tenga bastantes filas (señal de que expandió)
+  await page.waitForFunction(
+    () => document.querySelectorAll("tr td").length > 10,
+    { timeout: 15000 }
+  ).catch(() => {});
+
+  // Buscar y clickar via evaluate — reintenta hasta 3 veces con 2s entre intentos
+  const buscarYClickar = () => page.evaluate(({ nombre, entidad }) => {
+    const trs = document.querySelectorAll("tr");
+    for (const tr of trs) {
+      const trTxt = (tr.innerText || tr.textContent || "");
+      if (entidad && !trTxt.includes(entidad)) continue;
+      for (const a of tr.querySelectorAll("a")) {
+        const atxt = (a.innerText || a.textContent || "").trim();
+        if (atxt.includes(nombre)) {
+          a.click();
+          return { ok: true, texto: atxt };
+        }
+      }
+    }
+    const links = Array.from(document.querySelectorAll("a"))
+      .map((a) => (a.innerText || "").trim().slice(0, 50))
+      .filter((t) => t.length > 3);
+    return { ok: false, links };
+  }, { nombre: reqNombre, entidad: reqEntidad });
+
+  let res = await buscarYClickar();
+  for (let i = 0; !res.ok && i < 3; i++) {
+    console.log(`[CD] Link no encontrado, reintento ${i + 1}. Links visibles:`, res.links?.slice(0, 8));
+    await page.waitForTimeout(2000);
+    res = await buscarYClickar();
+  }
+
+  if (!res.ok) {
+    throw new Error(`No encontré el link "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""} en la bandeja`);
+  }
+  console.log(`[CD] Click en bandeja: "${res.texto}"`);
+
+  // BandejaDetalle se carga en un nuevo frame — esperar
   await page.waitForTimeout(3000);
 }
 
 // Sube un archivo PDF a un requerimiento específico.
 // reqNombre y reqEntidad se usan como fallback si href está vacío (CD usa JS navigation).
 export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNombre = "", reqEntidad = "") {
-  // Navegar al requerimiento
+  const tag = `[SUBIR] "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""}`;
+  console.log(`\n${tag} ── inicio`);
+  console.log(`${tag} Archivo: ${nombreArchivo} (${(bufferPdf.length / 1024).toFixed(1)} KB)`);
+
+  // ── Navegación al requerimiento ──────────────────────────────────────────────
   if (href && !href.startsWith("javascript:")) {
+    console.log(`${tag} Navegando por href: ${href.slice(0, 80)}`);
     await page.goto(href, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
+    console.log(`${tag} URL tras navegación: ${page.url().slice(0, 80)}`);
   } else {
-    console.log(`[CD] href vacío para "${reqNombre}" — navegando por click`);
+    console.log(`${tag} Sin href válido — buscando link en la bandeja`);
     await _navegarAReq(page, reqNombre, reqEntidad);
+    console.log(`${tag} URL tras click en bandeja: ${page.url().slice(0, 80)}`);
   }
 
-  // Captura de diagnóstico — se adjunta al error si algo falla
+  // Listar frames disponibles para diagnóstico
+  const listarFrames = () => {
+    const frames = page.frames();
+    console.log(`${tag} Frames activos (${frames.length}):`);
+    frames.forEach((f, i) => console.log(`  [${i}] ${f.url().slice(0, 80) || "(sin url)"}`));
+  };
+  listarFrames();
+
   const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
 
-  // Busca un locator en todos los frames (incluyendo iframes anidados).
-  // Usa count() para chequeo inmediato sin bloquear 30s como elementHandle().
-  const enFrames = async (fn) => {
+  // ── Paso 1: buscar y clickear "Adjuntar" ────────────────────────────────────
+  console.log(`${tag} Buscando botón "Adjuntar"...`);
+  let adjuntarClicked = false;
+  for (const frame of page.frames()) {
+    try {
+      const btn = frame.locator("a, button, li, span, input[type='button']")
+        .filter({ hasText: /adjuntar/i }).first();
+      const count = await btn.count();
+      const visible = count > 0 && await btn.isVisible().catch(() => false);
+      if (count > 0) console.log(`  → frame "${frame.url().slice(0, 60)}" — encontrado (visible: ${visible})`);
+      if (visible) {
+        const textoBtn = await btn.innerText().catch(() => "?");
+        console.log(`${tag} Click en Adjuntar: "${textoBtn.trim()}" en frame "${frame.url().slice(0, 60)}"`);
+        await btn.click();
+        adjuntarClicked = true;
+        break;
+      }
+    } catch (e) {
+      console.log(`  → frame error: ${e.message.slice(0, 60)}`);
+    }
+  }
+  if (!adjuntarClicked) {
+    console.log(`${tag} ⚠️ Botón Adjuntar no encontrado en ningún frame — intentando buscar input directamente`);
+  }
+
+  // ── Paso 2: esperar input[type="file"] ──────────────────────────────────────
+  console.log(`${tag} Esperando input[type="file"]...`);
+  let fileInput = null;
+  for (let intento = 0; intento < 20; intento++) {
+    await page.waitForTimeout(500);
     for (const frame of page.frames()) {
       try {
-        const r = await fn(frame);
-        if (r) return r;
+        const inp = frame.locator('input[type="file"]');
+        if (await inp.count() > 0) {
+          fileInput = inp.first();
+          console.log(`${tag} input[type=file] encontrado en intento ${intento + 1}, frame: "${frame.url().slice(0, 70)}"`);
+          break;
+        }
       } catch {}
     }
-    return null;
-  };
-
-  // Sondea cada 500ms hasta encontrar algo o agotar los intentos.
-  const poll = async (fn, intentos = 20) => {
-    for (let i = 0; i < intentos; i++) {
-      await page.waitForTimeout(500);
-      const r = await fn();
-      if (r) return r;
-    }
-    return null;
-  };
-
-  // Inyecta el archivo via DataTransfer en el documento de un frame (portado de la extensión).
-  // Busca input[type="file"] recursivamente en iframes internos via contentDocument.
-  const inyectarEnFrame = async (frame, b64, nombre) =>
-    frame.evaluate(({ b64, nombre }) => {
-      function buscarInput(doc, nivel) {
-        try {
-          const inp = doc.querySelector('input[type="file"]');
-          if (inp) return { input: inp, nivel };
-          const iframes = doc.querySelectorAll("iframe");
-          for (const iframe of iframes) {
-            try {
-              const sub = iframe.contentDocument || iframe.contentWindow.document;
-              const found = buscarInput(sub, nivel + 1);
-              if (found) return found;
-            } catch {}
-          }
-        } catch {}
-        return null;
-      }
-      function clickarAdjuntar(doc) {
-        try {
-          // Excluir td/div (containers) — buscar solo elementos "hoja" como a/button/li/span
-          const els = doc.querySelectorAll("a, button, li, span, input[type='button']");
-          for (const el of els) {
-            const txt = (el.innerText || el.value || "").trim();
-            // Texto corto (< 60 chars) que contenga "adjuntar" → es el tab/botón real
-            if (txt.length > 0 && txt.length < 60 && /adjuntar/i.test(txt)) {
-              el.click();
-              return el.tagName + ": " + txt.slice(0, 40);
-            }
-          }
-          for (const iframe of doc.querySelectorAll("iframe")) {
-            try {
-              const r = clickarAdjuntar(iframe.contentDocument || iframe.contentWindow.document);
-              if (r) return r;
-            } catch {}
-          }
-        } catch {}
-        return null;
-      }
-
-      const adjuntarResult = clickarAdjuntar(document);
-      const iframes = document.querySelectorAll("iframe");
-      const found = buscarInput(document, 0);
-      if (!found) return { ok: false, motivo: "sin input", adjuntar: adjuntarResult, iframes: iframes.length };
-
-      const { input, nivel } = found;
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-      const file = new File([bytes], nombre, { type: "application/pdf" });
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      input.files = dt.files;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return { ok: true, nivel, adjuntar: adjuntarResult };
-    }, { b64, nombre }).catch((e) => ({ ok: false, motivo: "evaluate error: " + e.message }));
-
-  const b64 = bufferPdf.toString("base64");
-  let inyectado = false;
-
-  for (let intento = 0; intento < 20 && !inyectado; intento++) {
-    await page.waitForTimeout(500);
-    const frames = page.frames();
-    console.log(`[CD] Intento ${intento}: ${frames.length} frames`);
-    for (const frame of frames) {
-      if (frame === page.mainFrame()) continue;
-      const res = await inyectarEnFrame(frame, b64, nombreArchivo);
-      console.log(`[CD] Frame "${frame.url().slice(0, 80)}":`, JSON.stringify(res));
-      if (res?.ok) { inyectado = true; break; }
+    if (fileInput) break;
+    if (intento === 9) {
+      console.log(`${tag} ⚠️ 5s sin input[type=file], re-listando frames...`);
+      listarFrames();
     }
   }
 
-  if (!inyectado) {
-    const err = new Error(`No pude inyectar el archivo (${page.frames().length} frames). URL: ${page.url()}`);
+  if (!fileInput) {
+    console.log(`${tag} ❌ No apareció input[type="file"] tras 10s`);
+    const err = new Error(`No encontré input[type="file"] (${page.frames().length} frames). URL: ${page.url()}`);
     err.screenshot = await capturar();
     throw err;
   }
 
-  await page.waitForTimeout(3000);
+  // ── Paso 3: asignar el archivo ───────────────────────────────────────────────
+  console.log(`${tag} Asignando archivo con setInputFiles: "${nombreArchivo}"`);
+  await fileInput.setInputFiles({ name: nombreArchivo, mimeType: "application/pdf", buffer: bufferPdf });
+  console.log(`${tag} ✅ Archivo asignado`);
 
-  // 2. Buscar y clickar botón de envío — puede estar en iframe anidado (mismo patrón que el input)
-  let enviado = false;
+  // ── Paso 4: esperar "Archivo cargado con exito" y clickear "Continuar" ────────
+  console.log(`${tag} Esperando confirmación de upload en BandejaUpload...`);
+  let uploadConfirmado = false;
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(500);
+    for (const frame of page.frames()) {
+      if (!frame.url().includes("BandejaUpload")) continue;
+      try {
+        const texto = await frame.evaluate(() => document.body.innerText).catch(() => "");
+        if (/cargado|exitoso|success|correcto/i.test(texto)) {
+          const linea = texto.match(/[^\n]*(cargado|exitoso|success|correcto)[^\n]*/i)?.[0] || "";
+          console.log(`${tag} Upload confirmado: "${linea.trim()}"`);
+          uploadConfirmado = true;
+          break;
+        }
+      } catch {}
+    }
+    if (uploadConfirmado) break;
+  }
+  if (!uploadConfirmado) console.log(`${tag} ⚠️ No apareció confirmación de upload tras 15s`);
+
+  let continuarClicked = false;
   for (const frame of page.frames()) {
-    if (frame === page.mainFrame()) continue;
-    const res = await frame.evaluate(() => {
-      function clickarEnviar(doc) {
-        try {
-          const btns = doc.querySelectorAll("button, input[type='submit'], input[type='button'], a");
-          for (const el of btns) {
-            const txt = ((el.innerText || el.value || "").trim());
-            if (txt.length < 60 && /enviar|confirmar|aceptar|guardar|subir/i.test(txt)) {
-              console.log("[CD eval] Clickando enviar:", el.tagName, txt.trim().slice(0, 30));
-              el.click();
-              return txt.trim().slice(0, 30);
-            }
-          }
-          for (const iframe of doc.querySelectorAll("iframe")) {
-            try {
-              const r = clickarEnviar(iframe.contentDocument || iframe.contentWindow.document);
-              if (r) return r;
-            } catch {}
-          }
-        } catch {}
-        return null;
+    if (!frame.url().includes("BandejaUpload")) continue;
+    try {
+      const btn = frame.locator(
+        "button:has-text('Continuar'), a:has-text('Continuar'), input[type='submit'][value='Continuar'], input[type='button'][value='Continuar']"
+      ).first();
+      if (await btn.count() > 0 && await btn.isVisible().catch(() => false)) {
+        console.log(`${tag} Click en Continuar en frame "${frame.url().slice(0, 60)}"`);
+        await btn.click();
+        continuarClicked = true;
+        break;
       }
-      return clickarEnviar(document);
-    }).catch(() => null);
-    if (res) {
-      console.log(`[CD] Botón enviar clickado: "${res}"`);
-      enviado = true;
+    } catch {}
+  }
+  if (!continuarClicked) console.log(`${tag} ⚠️ Botón Continuar no encontrado`);
+
+  // ── Paso 5: esperar que cierre el modal de upload, luego click "Enviar" ───────
+  console.log(`${tag} Esperando que cierre el modal de upload...`);
+  // Esperar hasta que el frame BandejaUpload desaparezca
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(500);
+    const uploadAbierto = page.frames().some((f) => f.url().includes("BandejaUpload"));
+    if (!uploadAbierto) {
+      console.log(`${tag} Modal cerrado tras ${(i + 1) * 0.5}s`);
       break;
     }
+    if (i === 19) console.log(`${tag} ⚠️ Modal BandejaUpload sigue abierto tras 10s`);
   }
-  if (!enviado) console.log("[CD] No encontré botón enviar — puede ser OK si se envía automáticamente.");
+  await page.waitForTimeout(1000);
+  listarFrames();
 
-  await page.waitForTimeout(3000);
+  console.log(`${tag} Buscando botón "Enviar" (btnEnviar)...`);
+  let enviado = false;
+  for (const frame of page.frames()) {
+    if (!frame.url().includes("BandejaDetalle")) continue;
+    try {
+      const resultado = await frame.evaluate(() => {
+        const btn = document.getElementById("btnEnviar");
+        if (!btn) return { ok: false, motivo: "btnEnviar no encontrado" };
+        if (btn.disabled) return { ok: false, motivo: "btnEnviar está disabled" };
+        // Llamar __doPostBack directamente, saltando onclick
+        if (typeof __doPostBack === "function") {
+          __doPostBack("btnEnviar", "");
+          return { ok: true, via: "__doPostBack" };
+        }
+        btn.click();
+        return { ok: true, via: "click()" };
+      });
+      console.log(`${tag} Enviar: ${JSON.stringify(resultado)}`);
+      if (resultado.ok) { enviado = true; break; }
+    } catch (e) {
+      console.log(`${tag} Error en frame Enviar: ${e.message}`);
+    }
+  }
+  if (!enviado) console.log(`${tag} ⚠️ No se pudo clickear Enviar`);
+
+  console.log(`${tag} Esperando 4s para que el servidor procese...`);
+  await page.waitForTimeout(4000);
+  console.log(`${tag} ✅ Subida completada\n`);
   return { ok: true };
 }

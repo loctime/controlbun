@@ -1,9 +1,55 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const AI_PROVIDER = process.env.AI_PROVIDER || "claude"; // claude | ollama | gemini
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llava";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+const client = AI_PROVIDER === "claude" ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODELO = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 
+const _providerLabel = AI_PROVIDER === "ollama" ? `Ollama (${OLLAMA_MODEL})`
+  : AI_PROVIDER === "gemini" ? `Gemini (${GEMINI_MODEL})`
+  : `Claude (${MODELO})`;
+console.log(`[AI] Usando: ${_providerLabel}`);
+
+function anthropicAOpenAI(content) {
+  return content.map((item) => {
+    if (item.type === "image") {
+      const { media_type, data } = item.source;
+      return { type: "image_url", image_url: { url: `data:${media_type};base64,${data}` } };
+    }
+    return item;
+  });
+}
+
+async function _llamarOpenAICompat({ baseUrl, apiKey, model, messages, max_tokens }) {
+  const resp = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages, max_tokens }),
+  });
+  if (!resp.ok) throw new Error(`${model} error ${resp.status}: ${await resp.text()}`);
+  const json = await resp.json();
+  return { content: [{ text: json.choices[0].message.content }] };
+}
+
 async function llamarClaude(body) {
+  console.log(`[AI] Llamando ${_providerLabel}...`);
+
+  const messages = body.messages.map((msg) => ({
+    role: msg.role,
+    content: Array.isArray(msg.content) ? anthropicAOpenAI(msg.content) : msg.content,
+  }));
+
+  if (AI_PROVIDER === "ollama") {
+    return _llamarOpenAICompat({ baseUrl: `${OLLAMA_BASE_URL}/v1`, apiKey: "ollama", model: OLLAMA_MODEL, messages, max_tokens: body.max_tokens });
+  }
+  if (AI_PROVIDER === "gemini") {
+    return _llamarOpenAICompat({ baseUrl: GEMINI_BASE_URL, apiKey: GEMINI_API_KEY, model: GEMINI_MODEL, messages, max_tokens: body.max_tokens });
+  }
   return await client.messages.create(body);
 }
 
@@ -204,7 +250,8 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
 
   content.push({ type: "text", text: "TIPOS DE DOCUMENTO APRENDIDOS (referencias visuales):\n" });
   mapeos.forEach((m, i) => {
-    content.push({ type: "text", text: `\nTipo ${i + 1}: "${m.nombre}"` });
+    const nPags = m.paginas.length;
+    content.push({ type: "text", text: `\nTipo ${i + 1}: "${m.nombre}" — EXACTAMENTE ${nPags} página${nPags !== 1 ? "s" : ""} por documento` });
     m.paginas.forEach((p, pi) => {
       content.push({ type: "text", text: `  Página de referencia ${pi + 1}:` });
       content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: p.imagen } });
@@ -226,30 +273,32 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
     type: "text",
     text: `
 
-TAREA: agrupar las páginas nuevas por entidad e identificar TODOS los requerimientos pendientes que le corresponden a cada grupo.
+TAREA: agrupar las páginas nuevas por entidad e identificar los requerimientos pendientes correspondientes.
 
 PASO 1 — AGRUPAR POR ENTIDAD:
-Leé el nombre del empleado o la patente del vehículo en cada página.
-Agrupa las páginas que pertenecen a la misma entidad (misma persona o mismo vehículo).
+Leé la patente del vehículo o el nombre del empleado en CADA página.
+Agrupá las páginas que pertenecen a la misma entidad (misma patente o misma persona).
+CRÍTICO: cada grupo debe tener EXACTAMENTE la cantidad de páginas indicada para ese tipo de documento.
+Si una entidad aparece en más o menos páginas de las esperadas, revisá si leíste mal la patente/nombre.
 
 PASO 2 — IDENTIFICAR REQUERIMIENTOS:
-Para cada grupo, encontrá TODOS los requerimientos pendientes que coinciden:
-- El tipo de documento se identifica comparando visualmente con los Tipos aprendidos.
-- El nombre del req puede incluir un período (ej: "Pago del seguro automotor-2026-4") — ignorarlo al comparar con el tipo aprendido "Pago del seguro automotor".
-- Si dos Tipos aprendidos tienen referencias visuales idénticas o muy similares, incluí los reqs de AMBOS tipos.
-- Un mismo grupo puede tener varios reqs (ej: el mismo PDF va a "seguro automotor" Y "seguro técnico").
+Para cada grupo, encontrá TODOS los requerimientos pendientes que coinciden visualmente con los Tipos aprendidos:
+- Comparar el tipo de documento (visualmente) con las imágenes de referencia.
+- El nombre del req incluye un período (ej: "-2026-4") — ignorarlo al comparar con el tipo aprendido.
+- Si dos Tipos aprendidos son visualmente idénticos o muy similares, incluí los reqs de AMBOS.
+- SOLO asignár reqs cuyo tipo base coincida con algún Tipo aprendido. No inventar nuevos tipos.
 
 Respondé SOLO JSON válido, sin texto extra:
 {
   "grupos": [
-    { "entidad": "UMM906", "paginas": [1, 4], "reqs": [12, 13] },
-    { "entidad": "HTC822", "paginas": [2, 3], "reqs": [14, 15] }
+    { "entidad": "UMM906", "paginas": [1, 3], "reqs": [1, 2] },
+    { "entidad": "HTC822", "paginas": [2, 4], "reqs": [3, 4] }
   ],
   "sinAsignar": []
 }
 
-reqs: array de números (1-based) de la lista de reqs pendientes. Puede ser uno o varios.
-sinAsignar: números de página que no corresponden a ningún requerimiento.`,
+reqs: array de números (1-based) de la lista de reqs pendientes.
+sinAsignar: páginas que definitivamente no corresponden a ningún tipo aprendido.`,
   });
 
   const resp = await llamarClaude({
@@ -272,17 +321,52 @@ sinAsignar: números de página que no corresponden a ningún requerimiento.`,
 
   if (!parsed?.grupos?.length) return null;
 
+  // Normaliza el nombre quitando el sufijo de período "-YYYY-N" para comparar.
+  const baseNombre = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
+  // Map de baseNombre → cantidad de páginas esperadas según el mapeo aprendido
+  const paginasPorTipo = new Map(mapeos.map((m) => [baseNombre(m.nombre), m.paginas.length]));
+
   const grupos = [];
+  const sinAsignarExtra = [];
   for (const g of parsed.grupos) {
     if (!g.paginas?.length) continue;
+
+    // Filtrar reqs a solo tipos aprendidos
     const reqs = (g.reqs || [])
       .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
-      .filter(Boolean);
-    if (reqs.length > 0) {
-      grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs });
+      .filter(Boolean)
+      .filter((r) => {
+        const coincide = paginasPorTipo.has(baseNombre(r.nombre));
+        if (!coincide) console.log(`[MATCH] Req descartado (sin mapeo): "${r.nombre}"`);
+        return coincide;
+      });
+
+    if (!reqs.length) { sinAsignarExtra.push(...g.paginas); continue; }
+
+    // Validar página count: el grupo debe tener al menos las páginas que el mapeo espera
+    const paginasGrupo = g.paginas.length;
+    const reqsValidos = reqs.filter((r) => {
+      const esperadas = paginasPorTipo.get(baseNombre(r.nombre)) || 1;
+      if (paginasGrupo < esperadas) {
+        console.log(`[MATCH] "${r.nombre}" — ${g.entidad}: ${paginasGrupo}/${esperadas} págs (incompleto, descartado)`);
+        return false;
+      }
+      if (paginasGrupo > esperadas) {
+        console.log(`[MATCH] "${r.nombre}" — ${g.entidad}: ${paginasGrupo}/${esperadas} págs (exceso, revisar agrupación)`);
+      }
+      return true;
+    });
+
+    if (reqsValidos.length > 0) {
+      grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs: reqsValidos });
+    } else {
+      sinAsignarExtra.push(...g.paginas);
     }
   }
 
-  const sinAsignar = Array.isArray(parsed.sinAsignar) ? parsed.sinAsignar : [];
+  const sinAsignar = [
+    ...(Array.isArray(parsed.sinAsignar) ? parsed.sinAsignar : []),
+    ...sinAsignarExtra,
+  ];
   return grupos.length ? { grupos, sinAsignar } : null;
 }
