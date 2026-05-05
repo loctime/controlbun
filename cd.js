@@ -330,9 +330,8 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
     ? page.locator("tr").filter({ hasText: reqEntidad }).locator("a").filter({ hasText: reqNombre }).first()
     : page.locator("a").filter({ hasText: reqNombre }).first();
   await link.click();
-  // El click abre un modal sobre la bandeja (sin navegar). Esperar que aparezca.
-  await page.locator("text=Detalle del requerimiento").waitFor({ timeout: 10000 }).catch(() => {});
-  await page.waitForTimeout(500);
+  // Modal AJAX sobre la bandeja — esperar que cargue (puede estar en un iframe interno).
+  await page.waitForTimeout(3000);
 }
 
 // Sube un archivo PDF a un requerimiento específico.
@@ -350,14 +349,27 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   // Captura de diagnóstico — se adjunta al error si algo falla
   const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
 
-  // Hacer click en el tab "Adjuntar archivo" del modal.
-  // CD lo renderiza como tab (puede ser li, span, a, td — no necesariamente button).
-  const btnAdjuntar = page.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
-  try {
-    await btnAdjuntar.waitFor({ timeout: 10000 });
-  } catch {
+  // Buscar el tab "Adjuntar archivo" en página principal y en todos los iframes.
+  // CD puede cargar el contenido del modal en un iframe interno (ASP.NET pattern).
+  const encontrarAdjuntar = async () => {
+    for (const frame of page.frames()) {
+      try {
+        const el = frame.locator("a, button, li, span, td").filter({ hasText: /adjuntar\s+archivo/i }).first();
+        if ((await el.count()) > 0) return el;
+      } catch {}
+    }
+    return null;
+  };
+
+  let btnAdjuntar = null;
+  for (let i = 0; i < 8 && !btnAdjuntar; i++) {
+    await page.waitForTimeout(500);
+    btnAdjuntar = await encontrarAdjuntar();
+  }
+
+  if (!btnAdjuntar) {
     const screenshot = await capturar();
-    const err = new Error(`No encontré el tab "Adjuntar archivo" en el modal. URL: ${page.url()}`);
+    const err = new Error(`No encontré "Adjuntar archivo" (${page.frames().length} frames). URL: ${page.url()}`);
     err.screenshot = screenshot;
     throw err;
   }
