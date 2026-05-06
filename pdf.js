@@ -50,7 +50,7 @@ export async function pdfAImagenes(buffer, escala = 120) {
       { b64pdf, scale }
     );
 
-    console.log(`[PDF] ${imagenes.length} páginas renderizadas`);
+    console.log(`[PDF] pdfAImagenes: ${imagenes.length} páginas renderizadas por pdfjs`);
     return imagenes;
   } finally {
     await page.close();
@@ -59,8 +59,13 @@ export async function pdfAImagenes(buffer, escala = 120) {
 
 export async function cortarPaginas(buffer, paginas) {
   const srcDoc = await PDFDocument.load(buffer);
+  const totalPags = srcDoc.getPageCount();
+  const indices = paginas.map((p) => p - 1);
+  console.log(`[PDF] cortarPaginas: total=${totalPags}, pedidas=${paginas.join(",")}, índices=${indices.join(",")}`);
+  const invalidos = indices.filter((i) => i < 0 || i >= totalPags);
+  if (invalidos.length) console.warn(`[PDF] ⚠️ Índices fuera de rango: ${invalidos.join(",")} (total páginas: ${totalPags})`);
   const nuevoDoc = await PDFDocument.create();
-  const copiadas = await nuevoDoc.copyPages(srcDoc, paginas.map((p) => p - 1));
+  const copiadas = await nuevoDoc.copyPages(srcDoc, indices);
   copiadas.forEach((p) => nuevoDoc.addPage(p));
   return Buffer.from(await nuevoDoc.save());
 }

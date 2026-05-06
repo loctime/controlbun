@@ -832,7 +832,7 @@ bot.on("message", async (ctx) => {
       let ok = 0, fail = 0;
       for (const grupo of gruposSubir) {
         const paginasOrdenadas = grupo.paginas.slice().sort((a, b) => a - b);
-        // Cortar una vez, subir a todos los reqs del grupo
+        console.log(`[SUBIDA] Grupo "${grupo.entidad}": solicitando págs ${paginasOrdenadas.join(",")}`);
         const bufferGrupo = await cortarPaginas(buffer, paginasOrdenadas);
         for (const req of grupo.reqs) {
           const nombre = `${req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
