@@ -819,14 +819,15 @@ function card(m, i) {
   }
   if (!imgs) imgs = '<div class="card-no-img">Sin imagen</div>';
 
+  const editIcon = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l3 3-8 8H3v-3l8-8z"/></svg>`;
   return `<div class="card" style="animation-delay:${delay}ms">
     <div class="card-imgs">${imgs}</div>
     <div class="card-body">
       <div class="card-name">${esc(m.nombre)}</div>
       <div class="card-meta">${m.paginas} página${m.paginas!==1?'s':''} de referencia</div>
       <div class="card-actions">
-        <button class="btn btn-ghost" onclick="openReplace(${JSON.stringify(m.nombre)})">${IC.upload} Reemplazar</button>
-        <button class="btn btn-danger" onclick="openDel(${JSON.stringify(m.nombre)})">${IC.trash} Eliminar</button>
+        <button class="btn btn-ghost" data-nombre="${esc(m.nombre)}" onclick="openModify(this.dataset.nombre)">${editIcon} Modificar</button>
+        <button class="btn btn-danger" data-nombre="${esc(m.nombre)}" onclick="openDel(this.dataset.nombre)">${IC.trash} Eliminar</button>
       </div>
     </div>
   </div>`;
@@ -857,7 +858,10 @@ function closeModal() {
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────
+let _delNombre = null;
+
 function openDel(nombre) {
+  _delNombre = nombre;
   openModal(`<div class="modal">
     <div class="confirm-body">
       <span class="confirm-icon">🗑️</span>
@@ -865,53 +869,68 @@ function openDel(nombre) {
     </div>
     <div class="modal-ft">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-danger" onclick="doDel(${JSON.stringify(nombre)})">${IC.trash} Eliminar</button>
+      <button class="btn btn-danger" onclick="doDel()">${IC.trash} Eliminar</button>
     </div>
   </div>`);
 }
 
-async function doDel(nombre) {
+async function doDel() {
+  const nombre = _delNombre;
+  if (!nombre) return;
   try {
     await apiFetch('DELETE', `/api/mapeo/${encodeURIComponent(nombre)}`);
     S.mapeos = S.mapeos.filter(m => m.nombre !== nombre);
+    _delNombre = null;
     closeModal();
     render();
     toast(`"${nombre}" eliminado`);
   } catch { toast('Error al eliminar', 'err'); }
 }
 
-// ── Replace ───────────────────────────────────────────────────────────────────
-let _rState = { nombre: null, paginasData: [], sel: [] };
+// ── Modify (opens editor pre-loaded with existing mapeo) ─────────────────────
+async function openModify(nombre) {
+  const app = document.getElementById('app');
+  app.style.maxWidth = 'none';
+  app.style.padding = '0';
+  app.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 60px)"><div class="loading"><div class="spin"></div><span>Cargando mapeo…</span></div></div>`;
 
-function openReplace(nombre) {
-  _rState = { nombre, paginasData: [], sel: [] };
-  openModal(`<div class="modal">
-    <div class="modal-hd">
-      <div>
-        <div class="modal-title">Reemplazar referencia</div>
-        <div class="modal-sub">${esc(nombre)}</div>
-      </div>
-      <button class="modal-x" onclick="closeModal()">${IC.x}</button>
-    </div>
-    <div class="modal-body" id="rBody">${dropZone(nombre)}</div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-accent" id="rSave" style="display:none" onclick="doReplace()">${IC.upload} Guardar</button>
-    </div>
-  </div>`);
-  bindDrop(nombre);
+  try {
+    const r = await apiFetch('GET', `/api/mapeo/${encodeURIComponent(nombre)}/pages`);
+    if (!r.ok) throw new Error();
+    const { paginas } = await r.json();
+
+    E = {
+      paginasData: paginas,
+      pagSinAsignar: new Set(),
+      seleccion: new Set(),
+      grupos: [{ id: 0, nombre, color: GROUP_COLORS[0], paginas }],
+      nextGroupId: 1,
+      viewMode: 4,
+      modifyNombre: nombre,
+      mapeosExistentes: new Set(S.mapeos.map(m => m.nombre.toLowerCase())),
+    };
+    renderEditor();
+  } catch {
+    app.style.maxWidth = '';
+    app.style.padding = '';
+    render();
+    toast('Error cargando el mapeo', 'err');
+  }
 }
 
-function dropZone(nombre) {
+// ── Replace (modal — kept for internal use via dropZone) ──────────────────────
+let _rState = { nombre: null, paginasData: [], sel: [] };
+
+function dropZone() {
   return `<div class="drop-zone" id="dz">
-    <input type="file" accept="application/pdf" onchange="handleFile(event, ${JSON.stringify(nombre)})">
+    <input type="file" accept="application/pdf" onchange="handleFile(event)">
     <span class="drop-icon">📄</span>
     <p class="drop-text">Subir PDF de referencia</p>
     <p class="drop-hint">Arrastrá el archivo o hacé click para elegirlo</p>
   </div>`;
 }
 
-function bindDrop(nombre) {
+function bindDrop() {
   setTimeout(() => {
     const dz = document.getElementById('dz');
     if (!dz) return;
@@ -920,14 +939,15 @@ function bindDrop(nombre) {
     dz.addEventListener('drop', e => {
       e.preventDefault(); dz.classList.remove('over');
       const f = e.dataTransfer.files[0];
-      if (f?.type === 'application/pdf') handleFile({ target: { files: [f] } }, nombre);
+      if (f?.type === 'application/pdf') handleFile({ target: { files: [f] } });
     });
   }, 0);
 }
 
-async function handleFile(e, nombre) {
+async function handleFile(e) {
   const file = e.target.files[0];
   if (!file) return;
+  const nombre = _rState.nombre;
   const body = document.getElementById('rBody');
   body.innerHTML = pdfLoaderHtml('rl');
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -957,8 +977,8 @@ async function handleFile(e, nombre) {
     if (paginas.length === 1) togglePage(0);
     document.getElementById('rSave').style.display = 'inline-flex';
   } catch(err) {
-    body.innerHTML = dropZone(nombre);
-    bindDrop(nombre);
+    body.innerHTML = dropZone();
+    bindDrop();
     toast(`Error: ${err.message}`, 'err');
   }
 }
@@ -1042,7 +1062,7 @@ function renderEditor() {
       <div class="editor-bar">
         <div class="editor-bar-left">
           <button class="btn btn-ghost" onclick="closeEditor()">${IC.back} Volver</button>
-          <span class="editor-title">Nuevo mapeo</span>
+          <span class="editor-title">${E.modifyNombre ? 'Modificar: '+esc(E.modifyNombre) : 'Nuevo mapeo'}</span>
           <span style="width:1px;height:22px;background:var(--border);display:inline-block;margin:0 4px"></span>
           <div id="edActions" style="display:flex;align-items:center;gap:8px">${renderEditorActions()}</div>
         </div>

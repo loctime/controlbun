@@ -194,6 +194,16 @@ async function handle(req, res) {
       return;
     }
 
+    // GET /api/mapeo/:nombre/pages — páginas con base64 (para editor)
+    const pagesMatch = p.match(/^\/api\/mapeo\/(.+?)\/pages$/);
+    if (pagesMatch && method === "GET") {
+      const nombre = decodeURIComponent(pagesMatch[1]);
+      const bruto = await leerMapeoBruto(chatId, nombre);
+      if (!bruto) { res.writeHead(404); res.end(); return; }
+      sendJson(res, { paginas: (bruto.paginas || []).map((p, i) => ({ num: i + 1, imagen: p.imagen })) });
+      return;
+    }
+
     // GET /api/mapeo/:nombre/img/:idx
     const imgMatch = p.match(/^\/api\/mapeo\/(.+?)\/img\/(\d+)$/);
     if (imgMatch && method === "GET") {
