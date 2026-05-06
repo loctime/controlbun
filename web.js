@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { leerTodosMapeosPorTipo, leerMapeoBruto, eliminarMapeo, guardarMapeo } from "./mapeos.js";
 import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
+import { cdObtenerSesionActiva, cdLeerTiposRequerimientos } from "./cd.js";
 
 async function buscarClientePorCredenciales(cdUser, cdPass) {
   try {
@@ -141,6 +142,50 @@ async function handle(req, res) {
       return;
     }
 
+
+    // GET /api/requirements
+    if (p === "/api/requirements" && method === "GET") {
+      const reqFile = path.join("mapeos", chatId, "_requirements.json");
+      try {
+        const data = JSON.parse(await fs.readFile(reqFile, "utf8"));
+        sendJson(res, data);
+      } catch {
+        sendJson(res, { tipos: [], timestamp: null });
+      }
+      return;
+    }
+
+    // POST /api/requirements/refresh
+    if (p === "/api/requirements/refresh" && method === "POST") {
+      const cliente = await cargarCliente(chatId);
+      if (!cliente?.cdUser || !cliente?.cdPass) {
+        sendJson(res, { error: "Credenciales no configuradas" }, 400);
+        return;
+      }
+      try {
+        const sesion = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+        if (!sesion.ok) {
+          sendJson(res, { error: `Login fallido: ${sesion.motivo || "credenciales inválidas"}` }, 401);
+          return;
+        }
+        const tipos = await cdLeerTiposRequerimientos(sesion.page);
+        const data = { tipos, timestamp: Date.now() };
+        await fs.mkdir(path.join("mapeos", chatId), { recursive: true });
+        await fs.writeFile(path.join("mapeos", chatId, "_requirements.json"), JSON.stringify(data, null, 2));
+        sendJson(res, data);
+      } catch (e) {
+        sendJson(res, { error: `Error al obtener requerimientos: ${e.message}` }, 500);
+      }
+      return;
+    }
+
+    // POST /api/pdf/render
+    if (p === "/api/pdf/render" && method === "POST") {
+      const body = await readBody(req);
+      const imagenes = await pdfAImagenes(body);
+      sendJson(res, { paginas: imagenes.map((i) => ({ num: i.pagina, imagen: i.base64 })) });
+      return;
+    }
 
     // GET /api/mapeos
     if (p === "/api/mapeos" && method === "GET") {

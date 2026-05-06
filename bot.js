@@ -509,6 +509,13 @@ bot.on("message", async (ctx) => {
         await ctx.reply(`🔍 <b>Clasificación detectada:</b>\n${debugLineas}`, { parse_mode: "HTML" });
       }
 
+      const _parseTotalMeses = (nombre) => {
+        const m = String(nombre || "").match(/-(\d{4})-(\d+)$/i);
+        return m ? parseInt(m[1]) * 12 + parseInt(m[2]) : null;
+      };
+      const _now = new Date();
+      const _totalMesesActual = _now.getFullYear() * 12 + (_now.getMonth() + 1);
+
       const lineas = resultado.grupos.map((g, i) => {
         const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
         const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
@@ -516,6 +523,11 @@ bot.on("message", async (ctx) => {
         if (g.omitidos?.length) {
           const omitStr = g.omitidos.map((r) => `  ⏩ <i>${escapeHtml(r.nombre)}</i>`).join("\n");
           linea += `\n${omitStr} (período anterior, no se sube)`;
+        }
+        const maxTotalMeses = Math.max(...g.reqs.map((r) => _parseTotalMeses(r.nombre) ?? 0));
+        const mesesAtras = _totalMesesActual - maxTotalMeses;
+        if (maxTotalMeses > 0 && mesesAtras >= 2) {
+          linea += `\n  ⚠️ El req más reciente está ${mesesAtras} mes${mesesAtras !== 1 ? "es" : ""} atrás del mes actual`;
         }
         return linea;
       });

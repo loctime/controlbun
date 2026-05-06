@@ -74,6 +74,7 @@
     .ph { margin-bottom: 36px; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
     .ph-left h1 { font-family: 'Crimson Pro', serif; font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
     .ph-left p { font-size: 13px; color: var(--text-3); margin-top: 5px; }
+    .ph-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .count {
       display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500;
       color: var(--text-2); background: var(--surface); border: 1px solid var(--border);
@@ -128,6 +129,8 @@
     .btn-dark { background: var(--text); color: var(--bg); border-color: var(--text); }
     .btn-dark:hover { background: #2D3640; }
     .btn:disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
+    .btn-sm { font-size: 11.5px; padding: 4px 9px; }
+    .btn-lg { font-size: 14px; padding: 9px 18px; }
 
     /* ── Empty / loading ── */
     .empty { grid-column:1/-1; text-align:center; padding:72px 24px; }
@@ -137,6 +140,7 @@
 
     .loading { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:280px; gap:14px; color:var(--text-3); }
     .spin { width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite; }
+    .spin-sm { width:16px;height:16px;border-width:2px; }
     @keyframes spin { to { transform:rotate(360deg); } }
 
     /* ── Modal ── */
@@ -187,7 +191,7 @@
     .drop-text { font-size:13.5px;font-weight:500;color:var(--text-2);margin-bottom:3px; }
     .drop-hint { font-size:12px;color:var(--text-3); }
 
-    /* ── Page selector ── */
+    /* ── Page selector (replace modal) ── */
     .sel-label { font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin-bottom:11px; }
     .pages-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:9px; }
     .page-th {
@@ -268,11 +272,246 @@
     .field-input:focus { border-color:var(--accent);box-shadow:0 0 0 3px rgba(192,94,42,.12); }
     .login-btn { width:100%;justify-content:center;padding:10px;font-size:14px;margin-top:6px; }
 
-    @media (max-width:600px) {
+    /* ════════════════════════════════════════════════════════════
+       EDITOR VIEW
+    ════════════════════════════════════════════════════════════ */
+
+    .editor-wrap {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 60px);
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 0 32px;
+    }
+
+    .editor-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .editor-bar-left { display:flex; align-items:center; gap:12px; }
+    .editor-title { font-family:'Crimson Pro',serif; font-size:22px; font-weight:600; letter-spacing:-.01em; }
+    .editor-bar-right { display:flex; align-items:center; gap:8px; }
+
+    .editor-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 0;
+    }
+
+    /* Left panel — PDF pages */
+    .editor-left {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 0 24px;
+      padding-right: 20px;
+    }
+
+    .editor-upload {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 320px;
+    }
+
+    .editor-drop {
+      border: 2px dashed var(--border-strong); border-radius: var(--rl);
+      padding: 56px 40px; text-align: center; cursor: pointer;
+      transition: all .2s; background: var(--surface); position: relative;
+      width: 100%; max-width: 480px;
+    }
+    .editor-drop:hover, .editor-drop.over { border-color:var(--accent); background:var(--accent-s); }
+    .editor-drop input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    .editor-drop-icon { font-size:48px;display:block;margin-bottom:14px; }
+    .editor-drop-text { font-size:15px;font-weight:500;color:var(--text-2);margin-bottom:4px; }
+    .editor-drop-hint { font-size:12.5px;color:var(--text-3); }
+
+    .editor-pages-hd {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom: 14px;
+    }
+    .editor-pages-label { font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3); }
+    .editor-sel-count { font-size:12px; color:var(--text-2); }
+
+    .editor-pages {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .ep {
+      border: 2.5px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      transition: border-color .15s, box-shadow .15s;
+      user-select: none;
+    }
+    .ep:hover:not(.ep-assigned) { border-color: var(--accent); }
+    .ep.ep-sel {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(192,94,42,.2);
+    }
+    .ep.ep-assigned {
+      cursor: default;
+      opacity: .72;
+    }
+    .ep img { width:100%; display:block; aspect-ratio:3/4; object-fit:cover; }
+
+    .ep-num {
+      position:absolute;top:5px;left:5px;background:rgba(28,34,40,.72);color:#fff;
+      font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;
+    }
+
+    .ep-badge {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 4px 6px;
+      font-size: 9.5px; font-weight: 600;
+      text-align: center;
+      color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .ep-check {
+      position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;
+      background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;
+      opacity:0;transition:opacity .15s;
+    }
+    .ep.ep-sel .ep-check { opacity:1; }
+
+    /* Right panel — Groups sidebar */
+    .editor-right {
+      width: 300px;
+      flex-shrink: 0;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-hd {
+      padding: 18px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sidebar-title { font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3); margin-bottom:2px; }
+    .sidebar-sub { font-size:12px;color:var(--text-3); }
+
+    .sidebar-groups {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sidebar-empty {
+      text-align:center; padding:32px 12px;
+      font-size:13px; color:var(--text-3); line-height:1.6;
+    }
+
+    .group-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      animation: cardIn .25s ease;
+    }
+
+    .group-card-hd {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px 8px;
+    }
+    .group-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .group-name {
+      font-size: 13px; font-weight: 500; line-height: 1.3;
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .group-rm {
+      width: 20px; height: 20px; border-radius: 5px; border:none; background:none;
+      cursor:pointer; display:flex;align-items:center;justify-content:center;
+      color:var(--text-3); flex-shrink:0; transition:all .15s;
+    }
+    .group-rm:hover { background:var(--danger-s); color:var(--danger); }
+    .group-rm svg { width:10px;height:10px; }
+
+    .group-thumbs {
+      display: flex; gap: 3px; padding: 0 10px 10px; flex-wrap:wrap;
+    }
+    .group-thumb {
+      width: 36px; height: 48px;
+      border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+    }
+    .group-thumb img { width:100%;height:100%;object-fit:cover;display:block; }
+
+    .sidebar-ft {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* ── Assign button row ── */
+    .assign-bar {
+      padding: 14px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ── Req picker modal ── */
+    .modal-lg { max-width: 560px; }
+    .req-search {
+      width: 100%; padding: 9px 12px;
+      font-family: 'DM Sans', sans-serif; font-size: 14px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); outline: none; transition: border-color .15s;
+      margin-bottom: 12px;
+    }
+    .req-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,94,42,.12); }
+    .req-list { display:flex; flex-direction:column; gap:2px; max-height:320px; overflow-y:auto; }
+    .req-item {
+      padding: 9px 12px; border-radius: 7px; cursor: pointer;
+      font-size: 13.5px; transition: background .12s;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .req-item:hover { background: var(--surface-hover); }
+    .req-item.used { opacity: .45; cursor: default; pointer-events:none; }
+    .req-item.used::after { content:'Ya asignado'; font-size:11px;color:var(--text-3); }
+    .req-none { font-size:13px;color:var(--text-3);text-align:center;padding:20px 0; }
+
+    /* ── Reqs info bar ── */
+    .reqs-bar {
+      display:inline-flex; align-items:center; gap:8px;
+      font-size:12px; color:var(--text-3);
+    }
+    .reqs-bar strong { color:var(--text-2); }
+
+    @media (max-width:900px) {
+      .editor-right { width: 240px; }
+    }
+    @media (max-width:700px) {
       header { padding:0 16px; }
       main { padding:28px 16px; }
       .ph-left h1 { font-size:30px; }
       .grid { grid-template-columns:1fr; }
+      .editor-wrap { padding: 0 16px; }
+      .editor-body { flex-direction: column; }
+      .editor-right { width: 100%; border-left: none; border-top: 1px solid var(--border); height: 260px; }
+      .editor-left { padding-right: 0; }
     }
   </style>
 </head>
@@ -299,13 +538,19 @@
 <div class="lb" id="lb" style="display:none" onclick="closeLb()"><img id="lbImg" src="" alt=""></div>
 
 <script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+const GROUP_COLORS = ['#C05E2A','#2D5C8E','#2A7C5A','#7C4A8E','#8E6A2A','#5C2D2D','#2D5C3A','#5C522D'];
+
 // ── State ─────────────────────────────────────────────────────────────────────
-let S = { user: null, mapeos: [] };
+let S = { user: null, mapeos: [], reqs: [], reqsTimestamp: null };
+
+// Editor state — only active while editor view is open
+let E = null;
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function apiFetch(method, path, body) {
   const opts = { method };
-  if (body instanceof ArrayBuffer) {
+  if (body instanceof ArrayBuffer || body instanceof Uint8Array) {
     opts.headers = { 'Content-Type': 'application/octet-stream' };
     opts.body = body;
   } else if (body) {
@@ -330,11 +575,21 @@ function toast(msg, type='ok') {
   setTimeout(() => el.remove(), 3500);
 }
 
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString('es-AR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
 const IC = {
   trash: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5.5 4V3a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1M6.5 7v5M9.5 7v5M3 4l.8 8.4a1 1 0 001 .9h6.4a1 1 0 001-.9L13 4"/></svg>`,
   upload: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10V2M5 5l3-3 3 3M2 11v1.5a1 1 0 001 1h10a1 1 0 001-1V11"/></svg>`,
+  plus: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>`,
+  back: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3L5 8l5 5"/></svg>`,
+  refresh: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 8A5.5 5.5 0 0113.5 8M13.5 8v-3M13.5 8h-3"/></svg>`,
   x: `<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l12 12M13 1L1 13"/></svg>`,
   check: `<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg>`,
+  save: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 11v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1h6l3 3v5zM10 14v-4H6v4M6 3v3h5"/></svg>`,
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -345,6 +600,8 @@ async function init() {
     S.user = await r.json();
     showHeader();
     await loadMapeos();
+    // Load reqs cache silently in background
+    loadReqsCache().catch(() => {});
   } catch { renderLogin(); }
 }
 
@@ -358,6 +615,14 @@ async function loadMapeos() {
   const r = await apiFetch('GET', '/api/mapeos');
   S.mapeos = await r.json();
   render();
+}
+
+async function loadReqsCache() {
+  const r = await fetch('/api/requirements');
+  if (!r.ok) return;
+  const data = await r.json();
+  S.reqs = data.tipos || [];
+  S.reqsTimestamp = data.timestamp || null;
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -407,6 +672,7 @@ async function doLogin(e) {
     S.user = { nombre };
     showHeader();
     await loadMapeos();
+    loadReqsCache().catch(() => {});
   } catch {
     renderLogin('Error de conexión. Intentá de nuevo.');
   }
@@ -418,9 +684,13 @@ function render() {
     ? `<div class="count"><strong>${mapeos.length}</strong> tipo${mapeos.length>1?'s':''} aprendido${mapeos.length>1?'s':''}</div>`
     : '';
 
+  const reqsInfo = S.reqs.length
+    ? `<span class="reqs-bar"><strong>${S.reqs.length}</strong> tipos de req cargados${S.reqsTimestamp ? ' · '+fmtDate(S.reqsTimestamp) : ''}</span>`
+    : `<span class="reqs-bar">Sin lista de requerimientos</span>`;
+
   const cards = mapeos.length
     ? mapeos.map((m, i) => card(m, i)).join('')
-    : `<div class="empty"><span class="empty-icon">📁</span><h2>Sin mapeos todavía</h2><p>Usá <strong>/aprender</strong> en Telegram para enseñarle al bot los tipos de documentos.</p></div>`;
+    : `<div class="empty"><span class="empty-icon">📁</span><h2>Sin mapeos todavía</h2><p>Hacé click en <strong>Nuevo mapeo</strong> para agregar uno.</p></div>`;
 
   document.getElementById('app').innerHTML = `
     <div class="ph">
@@ -428,7 +698,11 @@ function render() {
         <h1>Mis mapeos</h1>
         <p>Imágenes de referencia para clasificación automática</p>
       </div>
-      ${badge}
+      <div class="ph-right">
+        ${reqsInfo}
+        ${badge}
+        <button class="btn btn-dark" onclick="openEditor()">${IC.plus} Nuevo mapeo</button>
+      </div>
     </div>
     <div class="grid">${cards}</div>`;
 }
@@ -611,6 +885,332 @@ async function doReplace() {
   } catch {
     toast('Error guardando los cambios', 'err');
     if (btn) { btn.disabled = false; btn.innerHTML = `${IC.upload} Guardar`; }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EDITOR
+// ════════════════════════════════════════════════════════════════════════════
+
+function openEditor() {
+  E = {
+    paginasData: [],
+    pagSinAsignar: new Set(),
+    seleccion: new Set(),
+    grupos: [],
+    nextGroupId: 0,
+    mapeosExistentes: new Set(S.mapeos.map(m => m.nombre.toLowerCase())),
+  };
+  renderEditor();
+}
+
+function closeEditor() {
+  E = null;
+  const app = document.getElementById('app');
+  app.style.maxWidth = '';
+  app.style.padding = '';
+  render();
+}
+
+function renderEditor() {
+  // Replace main tag content but keep header
+  const app = document.getElementById('app');
+  app.style.maxWidth = 'none';
+  app.style.padding = '0';
+
+  const reqsBtn = S.reqs.length
+    ? `<span class="reqs-bar">${IC.refresh} <strong>${S.reqs.length}</strong> reqs · <button class="btn btn-ghost btn-sm" onclick="refreshReqs()" id="refreshBtn">${IC.refresh} Actualizar</button></span>`
+    : `<button class="btn btn-ghost btn-sm" onclick="refreshReqs()" id="refreshBtn">${IC.refresh} Cargar requerimientos</button>`;
+
+  app.innerHTML = `
+    <div class="editor-wrap">
+      <div class="editor-bar">
+        <div class="editor-bar-left">
+          <button class="btn btn-ghost" onclick="closeEditor()">${IC.back} Volver</button>
+          <span class="editor-title">Nuevo mapeo</span>
+        </div>
+        <div class="editor-bar-right">
+          ${reqsBtn}
+        </div>
+      </div>
+      <div class="editor-body">
+        <div class="editor-left" id="edLeft">${renderEditorLeft()}</div>
+        <div class="editor-right" id="edRight">${renderEditorRight()}</div>
+      </div>
+    </div>`;
+  setTimeout(() => bindEditorDrop(), 0);
+}
+
+function renderEditorLeft() {
+  if (!E.paginasData.length) {
+    return `<div class="editor-upload">
+      <div class="editor-drop" id="edDrop">
+        <input type="file" accept="application/pdf" id="edFile" onchange="handleEditorFile(event)">
+        <span class="editor-drop-icon">📄</span>
+        <p class="editor-drop-text">Subir PDF</p>
+        <p class="editor-drop-hint">Arrastrá el archivo o hacé click para elegirlo</p>
+      </div>
+    </div>`;
+  }
+
+  const total = E.paginasData.length;
+  const sinAsignar = E.pagSinAsignar.size;
+  const selCount = E.seleccion.size;
+
+  const thumbnails = E.paginasData.map(p => {
+    const num = p.num;
+    const assigned = !E.pagSinAsignar.has(num);
+    const sel = E.seleccion.has(num);
+    const grupo = assigned ? E.grupos.find(g => g.paginas.some(pg => pg.num === num)) : null;
+    const color = grupo ? grupo.color : '';
+
+    let classes = 'ep';
+    if (sel) classes += ' ep-sel';
+    if (assigned) classes += ' ep-assigned';
+
+    const badge = grupo
+      ? `<div class="ep-badge" style="background:${color}cc">${esc(grupo.nombre)}</div>`
+      : '';
+
+    return `<div class="${classes}" id="ep${num}" onclick="toggleEditorPage(${num})">
+      <img src="data:image/jpeg;base64,${p.imagen}" alt="Pág ${num}" loading="lazy">
+      <span class="ep-num">${num}</span>
+      ${badge}
+      <span class="ep-check">${IC.check}</span>
+    </div>`;
+  }).join('');
+
+  const canAssign = selCount > 0 && S.reqs.length > 0;
+  const noReqs = selCount > 0 && !S.reqs.length;
+
+  return `
+    <div class="editor-pages-hd">
+      <span class="editor-pages-label">${total} página${total!==1?'s':''} · ${sinAsignar} sin asignar</span>
+      ${selCount > 0 ? `<span class="editor-sel-count">${selCount} seleccionada${selCount!==1?'s':''}</span>` : ''}
+    </div>
+    <div class="editor-pages">${thumbnails}</div>
+    <div class="assign-bar">
+      <button class="btn btn-accent btn-lg" onclick="openReqPicker()" ${canAssign?'':'disabled'}>
+        ${IC.plus} Asignar ${selCount>0?selCount+' página'+(selCount!==1?'s':''):'páginas'}
+      </button>
+      ${noReqs ? `<span style="font-size:12px;color:var(--text-3)">Cargá los requerimientos primero →</span>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="editorNewPdf()">Cambiar PDF</button>
+    </div>`;
+}
+
+function renderEditorRight() {
+  const hasPdf = E.paginasData.length > 0;
+  const canSave = E.grupos.length > 0;
+
+  const groupCards = E.grupos.length
+    ? E.grupos.map(g => `
+      <div class="group-card">
+        <div class="group-card-hd">
+          <span class="group-dot" style="background:${g.color}"></span>
+          <span class="group-name" title="${esc(g.nombre)}">${esc(g.nombre)}</span>
+          <button class="group-rm" onclick="removeGroup(${g.id})" title="Quitar">${IC.x}</button>
+        </div>
+        <div class="group-thumbs">
+          ${g.paginas.slice(0,6).map(p => `
+            <div class="group-thumb"><img src="data:image/jpeg;base64,${p.imagen}" alt="${p.num}"></div>`).join('')}
+          ${g.paginas.length > 6 ? `<div class="group-thumb" style="display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text-3);background:var(--bg)">+${g.paginas.length-6}</div>` : ''}
+        </div>
+      </div>`).join('')
+    : `<div class="sidebar-empty">${hasPdf ? 'Seleccioná páginas y asignales un tipo de requerimiento.' : 'Subí un PDF para empezar.'}</div>`;
+
+  const saveLabel = E.grupos.length === 1
+    ? `Guardar 1 mapeo`
+    : `Guardar ${E.grupos.length} mapeos`;
+
+  return `
+    <div class="sidebar-hd">
+      <div class="sidebar-title">Grupos creados</div>
+      <div class="sidebar-sub">${E.grupos.length} grupo${E.grupos.length!==1?'s':''}</div>
+    </div>
+    <div class="sidebar-groups">${groupCards}</div>
+    <div class="sidebar-ft">
+      <button class="btn btn-dark btn-lg" style="width:100%;justify-content:center"
+        onclick="saveAllGroups()" ${canSave?'':'disabled'}>
+        ${IC.save} ${saveLabel}
+      </button>
+    </div>`;
+}
+
+function refreshEditorUI() {
+  const left = document.getElementById('edLeft');
+  const right = document.getElementById('edRight');
+  if (left) left.innerHTML = renderEditorLeft();
+  if (right) right.innerHTML = renderEditorRight();
+}
+
+function toggleEditorPage(num) {
+  if (!E || !E.pagSinAsignar.has(num)) return;
+  if (E.seleccion.has(num)) {
+    E.seleccion.delete(num);
+  } else {
+    E.seleccion.add(num);
+  }
+  refreshEditorUI();
+}
+
+function editorNewPdf() {
+  E.paginasData = [];
+  E.pagSinAsignar = new Set();
+  E.seleccion = new Set();
+  refreshEditorUI();
+  // re-bind drop on next tick
+  setTimeout(() => bindEditorDrop(), 0);
+}
+
+async function handleEditorFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const left = document.getElementById('edLeft');
+  left.innerHTML = `<div class="editor-upload"><div class="prog"><div class="spin"></div><p>Procesando PDF…</p></div></div>`;
+
+  try {
+    const buf = await file.arrayBuffer();
+    const r = await apiFetch('POST', '/api/pdf/render', buf);
+    if (!r.ok) throw new Error(await r.text());
+    const { paginas } = await r.json();
+    E.paginasData = paginas;
+    E.pagSinAsignar = new Set(paginas.map(p => p.num));
+    E.seleccion = new Set();
+    refreshEditorUI();
+  } catch(err) {
+    left.innerHTML = renderEditorLeft();
+    setTimeout(() => bindEditorDrop(), 0);
+    toast(`Error procesando PDF: ${err.message}`, 'err');
+  }
+}
+
+function bindEditorDrop() {
+  const drop = document.getElementById('edDrop');
+  if (!drop) return;
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    const f = e.dataTransfer.files[0];
+    if (f?.type === 'application/pdf') handleEditorFile({ target: { files: [f] } });
+  });
+}
+
+// ── Requirements picker ────────────────────────────────────────────────────────
+function openReqPicker() {
+  if (!E.seleccion.size) return;
+  const usados = new Set(E.grupos.map(g => g.nombre.toLowerCase()));
+
+  openModal(`<div class="modal modal-lg">
+    <div class="modal-hd">
+      <div>
+        <div class="modal-title">Elegir requerimiento</div>
+        <div class="modal-sub">${E.seleccion.size} página${E.seleccion.size!==1?'s':''} seleccionada${E.seleccion.size!==1?'s':''}</div>
+      </div>
+      <button class="modal-x" onclick="closeModal()">${IC.x}</button>
+    </div>
+    <div class="modal-body">
+      <input class="req-search" type="text" id="reqSearch" placeholder="Buscar tipo de requerimiento…" oninput="filterReqs()" autocomplete="off">
+      <div class="req-list" id="reqList">${buildReqList(S.reqs, usados, '')}</div>
+    </div>
+  </div>`);
+  setTimeout(() => document.getElementById('reqSearch')?.focus(), 50);
+}
+
+function buildReqList(reqs, usados, q) {
+  const filtered = q
+    ? reqs.filter(r => r.toLowerCase().includes(q.toLowerCase()))
+    : reqs;
+
+  if (!filtered.length) return `<div class="req-none">Sin resultados para "${esc(q)}"</div>`;
+
+  return filtered.map(r => {
+    const isUsed = usados.has(r.toLowerCase());
+    const isExisting = E.mapeosExistentes.has(r.toLowerCase());
+    const badge = isExisting && !isUsed ? `<span style="font-size:11px;color:var(--text-3)">Sobreescribirá</span>` : '';
+    return `<div class="req-item ${isUsed?'used':''}" onclick="${isUsed?'':('createGroup('+JSON.stringify(r)+')')}">${esc(r)} ${badge}</div>`;
+  }).join('');
+}
+
+function filterReqs() {
+  const q = document.getElementById('reqSearch')?.value || '';
+  const usados = new Set(E.grupos.map(g => g.nombre.toLowerCase()));
+  const list = document.getElementById('reqList');
+  if (list) list.innerHTML = buildReqList(S.reqs, usados, q);
+}
+
+function createGroup(nombre) {
+  const colorIdx = E.grupos.length % GROUP_COLORS.length;
+  const color = GROUP_COLORS[colorIdx];
+  const paginasNums = [...E.seleccion].sort((a, b) => a - b);
+  const paginas = paginasNums.map(num => E.paginasData.find(p => p.num === num));
+
+  E.grupos.push({ id: E.nextGroupId++, nombre, color, paginas });
+  paginasNums.forEach(n => E.pagSinAsignar.delete(n));
+  E.seleccion.clear();
+
+  closeModal();
+  refreshEditorUI();
+  toast(`Grupo "${nombre}" creado (${paginas.length} pág.)`);
+}
+
+function removeGroup(id) {
+  const g = E.grupos.find(gr => gr.id === id);
+  if (!g) return;
+  g.paginas.forEach(p => E.pagSinAsignar.add(p.num));
+  E.grupos = E.grupos.filter(gr => gr.id !== id);
+  refreshEditorUI();
+}
+
+// ── Save all groups ────────────────────────────────────────────────────────────
+async function saveAllGroups() {
+  if (!E.grupos.length) return;
+  const btn = document.querySelector('.sidebar-ft .btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = `<div class="spin spin-sm"></div> Guardando…`; }
+
+  let ok = 0, err = 0;
+  for (const g of E.grupos) {
+    const paginas = g.paginas.map(p => ({ num: p.num, imagen: p.imagen, texto: '' }));
+    try {
+      const r = await apiFetch('PATCH', `/api/mapeo/${encodeURIComponent(g.nombre)}`, { paginas });
+      if (!r.ok) throw new Error();
+      ok++;
+    } catch {
+      err++;
+      toast(`Error guardando "${g.nombre}"`, 'err');
+    }
+  }
+
+  if (ok > 0) {
+    toast(`${ok} mapeo${ok!==1?'s':''} guardado${ok!==1?'s':''}`);
+    await loadMapeos();
+    closeEditor();
+  } else if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `${IC.save} Reintentar`;
+  }
+}
+
+// ── Refresh requirements ──────────────────────────────────────────────────────
+async function refreshReqs() {
+  const btn = document.getElementById('refreshBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = `<div class="spin spin-sm"></div> Cargando…`; }
+
+  try {
+    const r = await apiFetch('POST', '/api/requirements/refresh');
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error || 'Error');
+    }
+    const data = await r.json();
+    S.reqs = data.tipos || [];
+    S.reqsTimestamp = data.timestamp || null;
+    toast(`${S.reqs.length} tipos de requerimiento cargados`);
+    if (E) refreshEditorUI(); else render();
+  } catch(err) {
+    toast(`Error cargando reqs: ${err.message}`, 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = `${IC.refresh} Reintentar`; }
   }
 }
 
