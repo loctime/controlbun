@@ -261,12 +261,12 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
 
   const content = [];
 
-  content.push({ type: "text", text: "TIPOS DE DOCUMENTO APRENDIDOS (referencias visuales):\n" });
+  content.push({ type: "text", text: "TIPOS DE DOCUMENTO APRENDIDOS (referencias visuales):\nIMPORTANTE: estas imágenes muestran el TIPO de documento, NO la entidad. La patente o nombre que aparezca en la imagen de referencia es solo un ejemplo — ignorala al detectar entidades en páginas nuevas.\n" });
   mapeos.forEach((m, i) => {
     const nPags = m.paginas.length;
     content.push({ type: "text", text: `\nTipo ${i + 1}: "${m.nombre}" — EXACTAMENTE ${nPags} página${nPags !== 1 ? "s" : ""} por documento` });
     m.paginas.forEach((p, pi) => {
-      content.push({ type: "text", text: `  Página de referencia ${pi + 1}:` });
+      content.push({ type: "text", text: `  Página de referencia ${pi + 1} (solo muestra el formato, ignorar la entidad que aparezca):` });
       content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: p.imagen } });
     });
   });
@@ -289,7 +289,8 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
 TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos pendientes.
 
 PASO 1 — IDENTIFICAR ENTIDADES:
-Leé todas las páginas nuevas. Las que muestran una patente de vehículo o nombre de empleado son las páginas "ancla" — cada valor único es una entidad distinta.
+Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla" — cada valor único es una entidad distinta.
+Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.
 
 PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
@@ -310,6 +311,12 @@ Para cada grupo completo, encontrá TODOS los requerimientos pendientes que coin
 
 Respondé SOLO JSON válido, sin texto extra:
 {
+  "paginas_clasificadas": [
+    { "pagina": 1, "tipo_detectado": "Pago del seguro técnico", "entidad_detectada": "" },
+    { "pagina": 2, "tipo_detectado": "Pago del seguro técnico", "entidad_detectada": "" },
+    { "pagina": 3, "tipo_detectado": "Pago del seguro automotor", "entidad_detectada": "UMM906" },
+    { "pagina": 4, "tipo_detectado": "Pago del seguro automotor", "entidad_detectada": "HTC822" }
+  ],
   "grupos": [
     { "entidad": "UMM906", "paginas": [1, 3], "reqs": [1, 2] },
     { "entidad": "HTC822", "paginas": [2, 4], "reqs": [3, 4] }
@@ -317,6 +324,7 @@ Respondé SOLO JSON válido, sin texto extra:
   "sinAsignar": []
 }
 
+paginas_clasificadas: para CADA página nueva, el tipo de documento detectado (nombre del Tipo aprendido más cercano) y la entidad detectada (patente/nombre, o vacío si no tiene).
 reqs: números 1-based de la lista de reqs pendientes.
 sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron de grupos descartados.`,
   });
@@ -388,5 +396,6 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     ...(Array.isArray(parsed.sinAsignar) ? parsed.sinAsignar : []),
     ...sinAsignarExtra,
   ];
-  return grupos.length ? { grupos, sinAsignar } : null;
+  const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
+  return grupos.length ? { grupos, sinAsignar, paginasClasificadas } : null;
 }

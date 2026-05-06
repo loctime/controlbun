@@ -500,6 +500,15 @@ bot.on("message", async (ctx) => {
         return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
 
       const totalSubidas = resultado.grupos.reduce((s, g) => s + g.reqs.length, 0);
+
+      // Debug: clasificación por página
+      if (resultado.paginasClasificadas?.length) {
+        const debugLineas = resultado.paginasClasificadas.map(
+          (p) => `  pág ${p.pagina}: <i>${escapeHtml(p.tipo_detectado || "?")}</i>${p.entidad_detectada ? ` — <b>${escapeHtml(p.entidad_detectada)}</b>` : " (sin entidad)"}`
+        ).join("\n");
+        await ctx.reply(`🔍 <b>Clasificación detectada:</b>\n${debugLineas}`, { parse_mode: "HTML" });
+      }
+
       const lineas = resultado.grupos.map((g, i) => {
         const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
         const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
