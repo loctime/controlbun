@@ -181,7 +181,7 @@ bot.command("config", async (ctx) => {
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   setSesion(chatId, { fase: "config_esperando_user" });
   return ctx.reply(
-    "⚙️ Configuración de credenciales de controldocumentario.com\n\nMandame tu <b>usuario</b> (email):",
+    "⚙️ Configuración de cuenta de controldocumentario.com\n\nMandame tu <b>usuario de control documentario</b> (email):",
     { parse_mode: "HTML" }
   );
 });
@@ -191,7 +191,7 @@ bot.command("pendientes", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+    return ctx.reply("❌ No tenés cuenta configuradas. Usá /config primero.");
 
   await ctx.reply("⏳ Consultando requerimientos pendientes…");
   try {
@@ -538,7 +538,7 @@ bot.on("message", async (ctx) => {
   // ── Config: esperando usuario de CD ──
   if (sesion.fase === "config_esperando_user" && texto && !texto.startsWith("/")) {
     setSesion(chatId, { fase: "config_esperando_pass", cdUserTemp: texto });
-    return ctx.reply("Ahora mandame la <b>contraseña</b>:", { parse_mode: "HTML" });
+    return ctx.reply("Ahora mandame la <b>contraseña de control documentario</b>:", { parse_mode: "HTML" });
   }
 
   // ── Config: esperando contraseña de CD ──
@@ -566,7 +566,7 @@ bot.on("message", async (ctx) => {
 
       await actualizarCliente(chatId, { cdUser, cdPass });
       resetSesion(chatId);
-      return ctx.reply("✅ Credenciales guardadas y verificadas. Ya podés usar /aprender.");
+      return ctx.reply("✅ Confirmado, ya entramos a control documentario. Ya podés usar /aprender.");
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);

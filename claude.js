@@ -324,7 +324,7 @@ Respondé SOLO JSON válido, sin texto extra:
   "sinAsignar": []
 }
 
-paginas_clasificadas: para CADA página nueva, el tipo de documento detectado (nombre del Tipo aprendido más cercano) y la entidad detectada (patente/nombre, o vacío si no tiene).
+paginas_clasificadas: para CADA página nueva, el tipo detectado (escribe EXACTAMENTE el nombre del Tipo aprendido de la lista, ej: "F 931" — no describas con palabras propias) y la entidad detectada (patente/nombre, o vacío si no tiene).
 reqs: números 1-based de la lista de reqs pendientes.
 sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron de grupos descartados.`,
   });
@@ -351,45 +351,51 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
 
   // Normaliza el nombre quitando el sufijo de período "-YYYY-N" para comparar.
   const baseNombre = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
-  // Map de baseNombre → cantidad de páginas esperadas según el mapeo aprendido
+  // Map de baseNombre(mapeo) → cantidad de páginas esperadas
   const paginasPorTipo = new Map(mapeos.map((m) => [baseNombre(m.nombre), m.paginas.length]));
+  // Map de número de página → tipo detectado por la IA (normalizado)
+  const tipoDetectadoPorPag = new Map(
+    (parsed.paginas_clasificadas || []).map((pc) => [pc.pagina, baseNombre(pc.tipo_detectado || "")])
+  );
 
   const grupos = [];
   const sinAsignarExtra = [];
   for (const g of parsed.grupos) {
     if (!g.paginas?.length) continue;
 
-    // Filtrar reqs a solo tipos aprendidos
     const reqs = (g.reqs || [])
       .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
-      .filter(Boolean)
-      .filter((r) => {
-        const coincide = paginasPorTipo.has(baseNombre(r.nombre));
-        if (!coincide) console.log(`[MATCH] Req descartado (sin mapeo): "${r.nombre}"`);
-        return coincide;
-      });
+      .filter(Boolean);
 
     if (!reqs.length) { sinAsignarExtra.push(...g.paginas); continue; }
 
-    // Validar página count: el grupo debe tener al menos las páginas que el mapeo espera
-    const paginasGrupo = g.paginas.length;
-    const reqsValidos = reqs.filter((r) => {
-      const esperadas = paginasPorTipo.get(baseNombre(r.nombre)) || 1;
-      if (paginasGrupo < esperadas) {
-        console.log(`[MATCH] "${r.nombre}" — ${g.entidad}: ${paginasGrupo}/${esperadas} págs (incompleto, descartado)`);
-        return false;
-      }
-      if (paginasGrupo > esperadas) {
-        console.log(`[MATCH] "${r.nombre}" — ${g.entidad}: ${paginasGrupo}/${esperadas} págs (exceso, revisar agrupación)`);
-      }
-      return true;
-    });
+    // Verificar que las páginas del grupo fueron detectadas como un tipo aprendido
+    const tiposAprendidosEnGrupo = g.paginas
+      .map((p) => tipoDetectadoPorPag.get(p))
+      .filter((t) => t && paginasPorTipo.has(t));
 
-    if (reqsValidos.length > 0) {
-      grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs: reqsValidos });
-    } else {
+    if (!tiposAprendidosEnGrupo.length) {
+      const tiposRaw = g.paginas.map((p) => tipoDetectadoPorPag.get(p) || "?").join(", ");
+      console.log(`[MATCH] Grupo "${g.entidad}": tipo detectado "${tiposRaw}" sin mapeo — descartado`);
       sinAsignarExtra.push(...g.paginas);
+      continue;
     }
+
+    // Validar página count según el tipo detectado (primer tipo aprendido del grupo)
+    const tipoBase = tiposAprendidosEnGrupo[0];
+    const esperadas = paginasPorTipo.get(tipoBase) || 1;
+    const paginasGrupo = g.paginas.length;
+
+    if (paginasGrupo < esperadas) {
+      console.log(`[MATCH] Grupo "${g.entidad}" (${tipoBase}): ${paginasGrupo}/${esperadas} págs (incompleto, descartado)`);
+      sinAsignarExtra.push(...g.paginas);
+      continue;
+    }
+    if (paginasGrupo > esperadas) {
+      console.log(`[MATCH] Grupo "${g.entidad}" (${tipoBase}): ${paginasGrupo}/${esperadas} págs (exceso, revisar agrupación)`);
+    }
+
+    grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs });
   }
 
   const sinAsignar = [
