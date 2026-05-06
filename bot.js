@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
 import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente } from "./clientes.js";
-import { pdfAImagenes, cortarPaginas } from "./pdf.js";
+import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo } from "./cd.js";
 import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
@@ -1045,6 +1045,7 @@ async function setupCommands() {
 }
 
 setupCommands().catch((e) => console.error("[SETUP ERROR]", e.message));
+inicializarPdf().catch(() => {});
 startWebServer();
 startTunnel();
 bot.start();

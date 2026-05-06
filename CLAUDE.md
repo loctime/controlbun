@@ -124,8 +124,11 @@ El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin 
 1. Usuario manda PDF (sin comando previo)
 2. Bot renderiza páginas → lee mapeos → lee reqs pendientes de CD
 3. AI asigna cada página a un req pendiente específico (`matchearPaginasConReqs`)
-4. Bot muestra resumen y pide confirmación
-5. Usuario dice "sí" → corta PDF por grupo → sube cada sección a CD → reporta resultado
+4. Bot muestra resumen con confirmación:
+   - Cada grupo lista los reqs a subir y los omitidos con ⏩ (períodos anteriores)
+   - Si el req más reciente está 2+ meses atrás del mes actual → aviso ⚠️
+5. Usuario dice "sí" → corta PDF por grupo → sube cada sección a CD
+6. Mensaje final lista los reqs omitidos (período anterior) bajo "⚠️ Quedaron pendientes"
 
 ## Decisiones de arquitectura importantes
 
@@ -154,6 +157,17 @@ Solución: Playwright lanza Chromium headless y ejecuta pdfjs v3 desde CDN.
 Claude/Gemini ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
 **No cambiar a multi-llamada** — el costo sube y no mejora la precisión.
 **No agregar chain-of-thought** — empeora las asignaciones.
+
+### matchearPaginasConReqs — lógica de validación y deduplicación (claude.js)
+
+**Validación de grupos por tipo detectado (no por nombre de req):**
+El filtro que descarta reqs sin mapeo aprendido usa `tipo_detectado` de `paginas_clasificadas` (lo que la IA detectó visualmente) comparado contra los nombres de mapeos. Antes usaba el nombre del req de CD, lo que fallaba cuando el mapeo tiene un nombre distinto al req en CD (ej: mapeo "F 931" vs req "Planilla de capacitación-2026-4"). La IA recibe instrucción explícita de usar el nombre EXACTO del tipo aprendido en `tipo_detectado`.
+
+**Deduplicación por período:**
+Para cada par `(baseNombre × entidad)`, solo se conserva el req con el período más reciente (mayor año, luego mayor número en el sufijo `-YYYY-N`). Los reqs de períodos anteriores van en `grupo.omitidos[]` y no se suben. En `bot.js` se muestran con ⏩ en la confirmación y en el resumen final post-subida.
+
+**Advertencia de período desactualizado:**
+Si el req más reciente de un grupo está 2+ meses atrás del mes actual (calculado con `año × 12 + período` para manejar cambios de año), el mensaje de confirmación incluye un aviso ⚠️ con cuántos meses atrás está.
 
 ### Panel web con Cloudflare Tunnel
 `web.js` levanta un servidor HTTP en el puerto `WEB_PORT` (default 3100). El acceso externo se hace via Cloudflare Tunnel (túnel `controlbun-web`, ID `4994129b-9a21-4e27-ad2e-440455820877`), sin abrir puertos en el router.
@@ -234,8 +248,8 @@ WEB_URL=https://mapeos.controldoc.app
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo (adjuntar + continuar + enviar) | ✅ Probado y funcionando |
 | claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
-| claude.js: matchearPaginasConReqs | ✅ Funcionando con Gemini |
-| Flujo Trabajar en bot.js | ✅ Implementado |
+| claude.js: matchearPaginasConReqs | ✅ Validación por tipo_detectado, dedup por período |
+| Flujo Trabajar en bot.js | ✅ Con omitidos por período y aviso de reqs desactualizados |
 | Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end completa con clientes reales | ⏳ Pendiente |

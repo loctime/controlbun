@@ -217,6 +217,31 @@
     .prog .spin { margin:0 auto 12px; }
     .prog p { font-size:13px;color:var(--text-3); }
 
+    /* ── PDF loader ── */
+    .pdf-loader {
+      display:flex;flex-direction:column;align-items:center;gap:20px;
+      padding:40px 20px;text-align:center;
+    }
+    .pdf-loader-spin {
+      width:40px;height:40px;
+      border:3px solid var(--border);border-top-color:var(--accent);
+      border-radius:50%;animation:spin .8s linear infinite;
+    }
+    .pdf-loader-steps { display:flex;flex-direction:column;gap:8px;min-width:220px; }
+    .pdf-step {
+      display:flex;align-items:center;gap:10px;
+      font-size:13px;color:var(--text-3);
+      transition:color .3s;
+    }
+    .pdf-step.active { color:var(--text); }
+    .pdf-step.done { color:var(--text-3); }
+    .pdf-step-dot {
+      width:8px;height:8px;border-radius:50%;flex-shrink:0;
+      background:var(--border);transition:background .3s;
+    }
+    .pdf-step.active .pdf-step-dot { background:var(--accent);box-shadow:0 0 0 3px rgba(192,94,42,.2); }
+    .pdf-step.done .pdf-step-dot { background:var(--border-strong); }
+
     /* ── Confirm ── */
     .confirm-body { text-align:center;padding:28px 22px; }
     .confirm-icon { font-size:36px;display:block;margin-bottom:14px; }
@@ -344,8 +369,19 @@
 
     .editor-pages {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 10px;
+    }
+    .editor-pages-assigned {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin-top: 16px;
+    }
+    .editor-section-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--text-3);
+      margin-bottom: 8px; margin-top: 20px;
     }
 
     .ep {
@@ -621,6 +657,25 @@ function toast(msg, type='ok') {
   setTimeout(() => el.remove(), 3500);
 }
 
+function pdfLoaderHtml(containerId) {
+  return `<div class="pdf-loader" id="${containerId}">
+    <div class="pdf-loader-spin"></div>
+    <div class="pdf-loader-steps">
+      <div class="pdf-step active" id="${containerId}_s1"><span class="pdf-step-dot"></span>Leyendo archivo…</div>
+      <div class="pdf-step" id="${containerId}_s2"><span class="pdf-step-dot"></span>Renderizando páginas…</div>
+      <div class="pdf-step" id="${containerId}_s3"><span class="pdf-step-dot"></span>Preparando miniaturas…</div>
+    </div>
+  </div>`;
+}
+
+function pdfLoaderStep(containerId, step) {
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById(`${containerId}_s${i}`);
+    if (!el) continue;
+    el.className = 'pdf-step' + (i < step ? ' done' : i === step ? ' active' : '');
+  }
+}
+
 function fmtDate(ts) {
   if (!ts) return '';
   const d = new Date(ts);
@@ -637,6 +692,8 @@ const IC = {
   check: `<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg>`,
   save: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 11v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1h6l3 3v5zM10 14v-4H6v4M6 3v3h5"/></svg>`,
   eye: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>`,
+  grid2: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="14" rx="1.5"/><rect x="9" y="1" width="6" height="14" rx="1.5"/></svg>`,
+  grid4: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>`,
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -872,11 +929,15 @@ async function handleFile(e, nombre) {
   const file = e.target.files[0];
   if (!file) return;
   const body = document.getElementById('rBody');
-  body.innerHTML = `<div class="prog"><div class="spin"></div><p>Procesando PDF…</p></div>`;
+  body.innerHTML = pdfLoaderHtml('rl');
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   try {
+    pdfLoaderStep('rl', 1);
     const buf = await file.arrayBuffer();
+    pdfLoaderStep('rl', 2);
     const r = await apiFetch('POST', `/api/mapeo/${encodeURIComponent(nombre)}/upload`, buf);
+    pdfLoaderStep('rl', 3);
     if (!r.ok) throw new Error(await r.text());
     const { paginas } = await r.json();
     _rState.paginasData = paginas;
@@ -946,6 +1007,7 @@ function openEditor() {
     seleccion: new Set(),
     grupos: [],
     nextGroupId: 0,
+    viewMode: 4,
     mapeosExistentes: new Set(S.mapeos.map(m => m.nombre.toLowerCase())),
   };
   renderEditor();
@@ -981,6 +1043,8 @@ function renderEditor() {
         <div class="editor-bar-left">
           <button class="btn btn-ghost" onclick="closeEditor()">${IC.back} Volver</button>
           <span class="editor-title">Nuevo mapeo</span>
+          <span style="width:1px;height:22px;background:var(--border);display:inline-block;margin:0 4px"></span>
+          <div id="edActions" style="display:flex;align-items:center;gap:8px">${renderEditorActions()}</div>
         </div>
         <div class="editor-bar-right">
           ${reqsBtn}
@@ -1010,46 +1074,41 @@ function renderEditorLeft() {
   const sinAsignar = E.pagSinAsignar.size;
   const selCount = E.seleccion.size;
 
-  const thumbnails = E.paginasData.map(p => {
+  const makeThumbnail = (p, small) => {
     const num = p.num;
     const assigned = !E.pagSinAsignar.has(num);
     const sel = E.seleccion.has(num);
     const grupo = assigned ? E.grupos.find(g => g.paginas.some(pg => pg.num === num)) : null;
     const color = grupo ? grupo.color : '';
-
     let classes = 'ep';
     if (sel) classes += ' ep-sel';
     if (assigned) classes += ' ep-assigned';
-
     const badge = grupo
       ? `<div class="ep-badge" style="background:${color}cc">${esc(grupo.nombre)}</div>`
       : '';
-
     return `<div class="${classes}" id="ep${num}" onclick="toggleEditorPage(${num})">
       <img src="data:image/jpeg;base64,${p.imagen}" alt="Pág ${num}" loading="lazy">
       <span class="ep-num">${num}</span>
       ${badge}
-      <span class="ep-check">${IC.check}</span>
+      ${!small ? `<span class="ep-check">${IC.check}</span>` : ''}
       <button class="ep-eye" onclick="event.stopPropagation();openLb('data:image/jpeg;base64,${p.imagen}')" title="Ver en grande">${IC.eye}</button>
     </div>`;
-  }).join('');
+  };
 
-  const canAssign = selCount > 0 && S.reqs.length > 0;
-  const noReqs = selCount > 0 && !S.reqs.length;
+  const sinAsignarPages = E.paginasData.filter(p => E.pagSinAsignar.has(p.num));
+  const asignadasPages  = E.paginasData.filter(p => !E.pagSinAsignar.has(p.num));
+
+  const assignedSection = asignadasPages.length ? `
+    <div class="editor-section-label">Asignadas (${asignadasPages.length})</div>
+    <div class="editor-pages-assigned">${asignadasPages.map(p => makeThumbnail(p, true)).join('')}</div>` : '';
 
   return `
     <div class="editor-pages-hd">
-      <span class="editor-pages-label">${total} página${total!==1?'s':''} · ${sinAsignar} sin asignar</span>
+      <span class="editor-pages-label">${sinAsignarPages.length} sin asignar</span>
       ${selCount > 0 ? `<span class="editor-sel-count">${selCount} seleccionada${selCount!==1?'s':''}</span>` : ''}
     </div>
-    <div class="editor-pages">${thumbnails}</div>
-    <div class="assign-bar">
-      <button class="btn btn-accent btn-lg" onclick="openReqPicker()" ${canAssign?'':'disabled'}>
-        ${IC.plus} Asignar ${selCount>0?selCount+' página'+(selCount!==1?'s':''):'páginas'}
-      </button>
-      ${noReqs ? `<span style="font-size:12px;color:var(--text-3)">Cargá los requerimientos primero →</span>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="editorNewPdf()">Cambiar PDF</button>
-    </div>`;
+    <div class="editor-pages" style="grid-template-columns:repeat(${E.viewMode},1fr)">${sinAsignarPages.map(p => makeThumbnail(p, false)).join('')}</div>
+    ${assignedSection}`;
 }
 
 function renderEditorRight() {
@@ -1093,11 +1152,35 @@ function renderEditorRight() {
     </div>`;
 }
 
+function renderEditorActions() {
+  if (!E || !E.paginasData.length) return '';
+  const selCount = E.seleccion.size;
+  const canAssign = selCount > 0 && S.reqs.length > 0;
+  const noReqs = selCount > 0 && !S.reqs.length;
+  const is2col = E.viewMode === 2;
+  return `
+    <button class="btn btn-accent" onclick="openReqPicker()" ${canAssign?'':'disabled'}>
+      ${IC.plus} Asignar${selCount > 0 ? ' '+selCount+' página'+(selCount!==1?'s':'') : ' páginas'}
+    </button>
+    ${noReqs ? `<span style="font-size:12px;color:var(--text-3)">Cargá los reqs →</span>` : ''}
+    <button class="btn btn-ghost btn-sm" onclick="editorNewPdf()">Cambiar PDF</button>
+    <button class="btn btn-ghost btn-sm" onclick="toggleViewMode()" title="${is2col ? 'Vista compacta' : 'Vista grande'}">
+      ${is2col ? IC.grid4 : IC.grid2}
+    </button>`;
+}
+
+function toggleViewMode() {
+  E.viewMode = E.viewMode === 2 ? 4 : 2;
+  refreshEditorUI();
+}
+
 function refreshEditorUI() {
   const left = document.getElementById('edLeft');
   const right = document.getElementById('edRight');
+  const actions = document.getElementById('edActions');
   if (left) left.innerHTML = renderEditorLeft();
   if (right) right.innerHTML = renderEditorRight();
+  if (actions) actions.innerHTML = renderEditorActions();
 }
 
 function toggleEditorPage(num) {
@@ -1111,11 +1194,29 @@ function toggleEditorPage(num) {
 }
 
 function editorNewPdf() {
+  const tieneGrupos = E.grupos.length > 0;
+  const msg = tieneGrupos
+    ? `¿Cambiar el PDF? Se perderán los ${E.grupos.length} grupo${E.grupos.length!==1?'s':''} creados.`
+    : '¿Cambiar el PDF?';
+  openModal(`<div class="modal">
+    <div class="confirm-body">
+      <span class="confirm-icon">📄</span>
+      <p class="confirm-text">${msg}<br><small style="color:var(--text-3)">Esta acción no se puede deshacer.</small></p>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-dark" onclick="confirmNewPdf()">Cambiar PDF</button>
+    </div>
+  </div>`);
+}
+
+function confirmNewPdf() {
   E.paginasData = [];
   E.pagSinAsignar = new Set();
   E.seleccion = new Set();
+  E.grupos = [];
+  closeModal();
   refreshEditorUI();
-  // re-bind drop on next tick
   setTimeout(() => bindEditorDrop(), 0);
 }
 
@@ -1124,11 +1225,15 @@ async function handleEditorFile(e) {
   if (!file) return;
 
   const left = document.getElementById('edLeft');
-  left.innerHTML = `<div class="editor-upload"><div class="prog"><div class="spin"></div><p>Procesando PDF…</p></div></div>`;
+  left.innerHTML = `<div class="editor-upload">${pdfLoaderHtml('el')}</div>`;
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   try {
+    pdfLoaderStep('el', 1);
     const buf = await file.arrayBuffer();
+    pdfLoaderStep('el', 2);
     const r = await apiFetch('POST', '/api/pdf/render', buf);
+    pdfLoaderStep('el', 3);
     if (!r.ok) throw new Error(await r.text());
     const { paginas } = await r.json();
     E.paginasData = paginas;

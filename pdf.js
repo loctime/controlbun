@@ -1,23 +1,69 @@
 import { chromium } from "playwright";
 import { PDFDocument } from "pdf-lib";
 
+const PDFJS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+
 let _browser = null;
 async function getBrowser() {
   if (!_browser) _browser = await chromium.launch();
   return _browser;
 }
 
-export async function pdfAImagenes(buffer, escala = 120) {
+// Página persistente con pdfjs ya cargado — se inicializa una vez al arrancar
+let _renderPage = null;
+let _renderBusy = false;
+const _renderQueue = [];
+
+async function getRenderPage() {
   const browser = await getBrowser();
-  const page = await browser.newPage();
+  if (!_renderPage || _renderPage.isClosed()) {
+    _renderPage = await browser.newPage();
+    await _renderPage.goto("about:blank");
+    await _renderPage.addScriptTag({ url: PDFJS_CDN });
+    await _renderPage.waitForFunction(() => typeof pdfjsLib !== "undefined", { timeout: 30000 });
+    console.log("[PDF] página de renderizado lista");
+  }
+  return _renderPage;
+}
+
+function withRenderPage(fn) {
+  return new Promise((resolve, reject) => {
+    const task = async () => {
+      try {
+        const page = await getRenderPage();
+        resolve(await fn(page));
+      } catch (e) {
+        // Si la página crasheó, la descartamos para que se recree en el próximo intento
+        _renderPage = null;
+        reject(e);
+      } finally {
+        const next = _renderQueue.shift();
+        if (next) next();
+        else _renderBusy = false;
+      }
+    };
+    if (_renderBusy) {
+      _renderQueue.push(task);
+    } else {
+      _renderBusy = true;
+      task();
+    }
+  });
+}
+
+// Pre-carga la página de renderizado al arrancar el servidor
+export async function inicializarPdf() {
   try {
+    await getRenderPage();
+  } catch (e) {
+    console.warn("[PDF] No se pudo pre-cargar la página de renderizado:", e.message);
+  }
+}
+
+export async function pdfAImagenes(buffer, escala = 90) {
+  return withRenderPage(async (page) => {
     const b64pdf = buffer.toString("base64");
     const scale = escala / 72;
-
-    await page.goto("about:blank");
-    await page.addScriptTag({
-      url: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-    });
 
     const imagenes = await page.evaluate(
       async ({ b64pdf, scale }) => {
@@ -40,7 +86,7 @@ export async function pdfAImagenes(buffer, escala = 120) {
           await pdfPage.render({ canvasContext: ctx, viewport }).promise;
           result.push({
             pagina: i,
-            base64: canvas.toDataURL("image/jpeg", 0.75).split(",")[1],
+            base64: canvas.toDataURL("image/jpeg", 0.78).split(",")[1],
           });
         }
 
@@ -50,11 +96,9 @@ export async function pdfAImagenes(buffer, escala = 120) {
       { b64pdf, scale }
     );
 
-    console.log(`[PDF] pdfAImagenes: ${imagenes.length} páginas renderizadas por pdfjs`);
+    console.log(`[PDF] pdfAImagenes: ${imagenes.length} páginas renderizadas`);
     return imagenes;
-  } finally {
-    await page.close();
-  }
+  });
 }
 
 export async function cortarPaginas(buffer, paginas) {
