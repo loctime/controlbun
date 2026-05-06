@@ -7,6 +7,18 @@ import { leerTodosMapeosPorTipo, leerMapeoBruto, eliminarMapeo, guardarMapeo } f
 import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 
+async function buscarClientePorCredenciales(cdUser, cdPass) {
+  try {
+    const archivos = await fs.readdir("./clientes");
+    for (const archivo of archivos) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      const data = JSON.parse(await fs.readFile(path.join("./clientes", archivo), "utf8"));
+      if (data.cdUser === cdUser && data.cdPass === cdPass) return data;
+    }
+  } catch {}
+  return null;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // token → { chatId, expires }
@@ -101,6 +113,24 @@ async function handle(req, res) {
 
   // ── API ─────────────────────────────────────────────────────────────────────
   if (p.startsWith("/api/")) {
+
+    // POST /api/login — autenticación por credenciales de CD (no requiere sesión previa)
+    if (p === "/api/login" && method === "POST") {
+      const body = await readBody(req);
+      const { cdUser, cdPass } = JSON.parse(body.toString("utf8"));
+      if (!cdUser || !cdPass) { sendJson(res, { error: "Faltan credenciales" }, 400); return; }
+      const cliente = await buscarClientePorCredenciales(cdUser.trim(), cdPass);
+      if (!cliente) { sendJson(res, { error: "Credenciales incorrectas" }, 401); return; }
+      const sid = crypto.randomBytes(32).toString("hex");
+      sessions.set(sid, { chatId: String(cliente.chatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
+      });
+      res.end(JSON.stringify({ ok: true, nombre: cliente.nombre }));
+      return;
+    }
+
     const chatId = getChatId(req);
     if (!chatId) { sendJson(res, { error: "No autorizado" }, 401); return; }
 
@@ -110,6 +140,7 @@ async function handle(req, res) {
       sendJson(res, { chatId, nombre: cliente?.nombre || "Usuario" });
       return;
     }
+
 
     // GET /api/mapeos
     if (p === "/api/mapeos" && method === "GET") {

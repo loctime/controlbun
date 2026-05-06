@@ -97,12 +97,22 @@ Todos los mensajes del flujo /aprender incluyen recordatorio `/listo para finali
 3. Después de eliminar o reemplazar, **vuelve a mostrar la lista** (no cierra el flujo).
 
 ### /web — Panel web de mapeos
+El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin pasar por Telegram.
+
+**Auth principal — formulario de login:**
+1. Usuario entra a `https://mapeos.controldoc.app` y ve el formulario
+2. Ingresa su usuario y contraseña de controldocumentario.com
+3. `POST /api/login` busca en `clientes/*.json` cuál tiene esas credenciales → devuelve el `chatId`
+4. Si coincide: crea sesión (cookie HttpOnly, 7 días), muestra el panel
+5. Si no coincide: muestra error "Credenciales incorrectas"
+
+**Auth alternativa — link desde Telegram:**
 1. `/web` → genera token de un solo uso (válido 10 min) y manda link `https://mapeos.controldoc.app/auth?t=TOKEN`
-2. Usuario hace click → servidor valida token (se destruye), crea sesión, setea cookie HttpOnly por 24h, redirige a `/`
-3. Panel muestra cards con imágenes de referencia de cada mapeo
-4. Operaciones disponibles: zoom (lightbox), **eliminar** (con confirmación), **reemplazar** (subir PDF → seleccionar páginas)
-5. Múltiples usuarios pueden usar el panel en simultáneo — cada sesión está aislada por `chatId`
-6. Si se reinicia el bot, las sesiones web activas se invalidan (están en memoria)
+2. Click → valida token (se destruye), crea sesión, redirige a `/`
+
+**Operaciones disponibles:** zoom (lightbox), **eliminar** (con confirmación), **reemplazar** (subir PDF → seleccionar páginas)
+- Múltiples usuarios pueden usar el panel en simultáneo — cada sesión está aislada por `chatId`
+- Si se reinicia el bot, las sesiones web activas se invalidan (están en memoria) → el usuario loguea de nuevo
 
 ### /modelo — Cambiar AI (admin)
 - `/modelo` → muestra provider activo
@@ -149,8 +159,9 @@ Claude/Gemini ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
 `web.js` levanta un servidor HTTP en el puerto `WEB_PORT` (default 3100). El acceso externo se hace via Cloudflare Tunnel (túnel `controlbun-web`, ID `4994129b-9a21-4e27-ad2e-440455820877`), sin abrir puertos en el router.
 - URL pública: `https://mapeos.controldoc.app` (CNAME en zona `controldoc.app`)
 - `tunnel.js` arranca cloudflared con el token en `CF_TUNNEL_TOKEN` del `.env`
-- Auth: token de un solo uso en URL → cookie `session` HttpOnly (24h) → chatId en Map en memoria
-- La sesión web muere si el bot se reinicia. El usuario pide nuevo `/web`.
+- Auth primaria: formulario con credenciales de CD → `POST /api/login` → busca en `clientes/*.json` → cookie `session` HttpOnly 7 días
+- Auth alternativa: token de un solo uso desde `/web` en Telegram → cookie 7 días
+- La sesión web muere si el bot se reinicia → el usuario loguea de nuevo con su contraseña
 - La configuración de ingress está en Cloudflare (no en archivo local): `mapeos.controldoc.app → http://localhost:3100`
 
 ### Estado de sesión en memoria
