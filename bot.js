@@ -512,7 +512,12 @@ bot.on("message", async (ctx) => {
       const lineas = resultado.grupos.map((g, i) => {
         const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
         const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
-        return `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> → págs. ${pags}\n${reqsStr}`;
+        let linea = `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> → págs. ${pags}\n${reqsStr}`;
+        if (g.omitidos?.length) {
+          const omitStr = g.omitidos.map((r) => `  ⏩ <i>${escapeHtml(r.nombre)}</i>`).join("\n");
+          linea += `\n${omitStr} (período anterior, no se sube)`;
+        }
+        return linea;
       });
       if (resultado.sinAsignar.length)
         lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
@@ -893,8 +898,16 @@ bot.on("message", async (ctx) => {
         }
       }
 
+      const todosOmitidos = gruposSubir.flatMap((g) => g.omitidos || []);
       resetSesion(chatId);
-      return ctx.reply(`Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`);
+      let msgFinal = `Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`;
+      if (todosOmitidos.length) {
+        const omitStr = todosOmitidos
+          .map((r) => `  • ${escapeHtml(r.nombre)}${r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : ""}`)
+          .join("\n");
+        msgFinal += `\n\n⚠️ Quedaron pendientes (período anterior, subir aparte):\n${omitStr}`;
+      }
+      return ctx.reply(msgFinal, { parse_mode: "HTML" });
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);

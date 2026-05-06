@@ -395,7 +395,32 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
       console.log(`[MATCH] Grupo "${g.entidad}" (${tipoBase}): ${paginasGrupo}/${esperadas} págs (exceso, revisar agrupación)`);
     }
 
-    grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs });
+    // Por cada (baseType × entidad), quedar solo con el período más reciente
+    const parsePeriodo = (nombre) => {
+      const m = String(nombre || "").match(/-(\d{4})-(\d+)$/i);
+      return m ? [parseInt(m[1]), parseInt(m[2])] : [0, 0];
+    };
+    const reqLatest = new Map();
+    const omitidos = [];
+    for (const r of reqs) {
+      const key = `${baseNombre(r.nombre)}|${String(r.entidad || "").toLowerCase()}`;
+      const [yr, per] = parsePeriodo(r.nombre);
+      const existing = reqLatest.get(key);
+      if (!existing) {
+        reqLatest.set(key, { req: r, yr, per });
+      } else if (yr > existing.yr || (yr === existing.yr && per > existing.per)) {
+        omitidos.push(existing.req);
+        reqLatest.set(key, { req: r, yr, per });
+      } else {
+        omitidos.push(r);
+      }
+    }
+    const reqsFinal = [...reqLatest.values()].map((v) => v.req);
+    if (omitidos.length) {
+      console.log(`[MATCH] Grupo "${g.entidad}": ${omitidos.map((r) => r.nombre).join(", ")} omitidos (período anterior)`);
+    }
+
+    grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs: reqsFinal, omitidos });
   }
 
   const sinAsignar = [
