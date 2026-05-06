@@ -15,6 +15,9 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `mapeos.js` | Almacenamiento de mapeos por usuario en archivos JSON bajo `mapeos/{chatId}/` |
 | `cd.js` | Automatización de controldocumentario.com con Playwright: login, leer requerimientos, subir archivos |
 | `clientes.js` | Gestión de clientes: registro con código, credenciales CD, configuración |
+| `web.js` | Servidor HTTP (puerto 3100) para el panel web. Auth por token de un solo uso, API REST de mapeos. |
+| `tunnel.js` | Arranca cloudflared con el token del túnel. Reconexión automática en 15s si cae. |
+| `public/app.html` | SPA del panel web: grid de cards con imágenes de referencia, lightbox, modales de eliminar y reemplazar. |
 | `runtime.json` | Provider de AI activo (persiste entre reinicios). Gitignoreado. |
 
 ## Comandos del bot
@@ -27,6 +30,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `/pendientes` | todos | Ver requerimientos pendientes en CD |
 | `/unico` | todos | Subir un PDF directo a un requerimiento sin IA ni corte |
 | `/mapeos` | todos | Ver, reemplazar o eliminar mapeos guardados |
+| `/web` | todos | Obtener link de acceso al panel web (expira en 10 min) |
 | `/modelo` | admin | Cambiar provider de AI en runtime: `/modelo claude` o `/modelo gemini` |
 | `/nuevocliente` | admin | Registrar nuevo cliente: `/nuevocliente NombreApellido CODIGO` |
 | `/miid` | todos | Ver el chat ID propio |
@@ -92,6 +96,14 @@ Todos los mensajes del flujo /aprender incluyen recordatorio `/listo para finali
    - `cancelar` → vuelve a la lista
 3. Después de eliminar o reemplazar, **vuelve a mostrar la lista** (no cierra el flujo).
 
+### /web — Panel web de mapeos
+1. `/web` → genera token de un solo uso (válido 10 min) y manda link `https://mapeos.controldoc.app/auth?t=TOKEN`
+2. Usuario hace click → servidor valida token (se destruye), crea sesión, setea cookie HttpOnly por 24h, redirige a `/`
+3. Panel muestra cards con imágenes de referencia de cada mapeo
+4. Operaciones disponibles: zoom (lightbox), **eliminar** (con confirmación), **reemplazar** (subir PDF → seleccionar páginas)
+5. Múltiples usuarios pueden usar el panel en simultáneo — cada sesión está aislada por `chatId`
+6. Si se reinicia el bot, las sesiones web activas se invalidan (están en memoria)
+
 ### /modelo — Cambiar AI (admin)
 - `/modelo` → muestra provider activo
 - `/modelo claude` o `/modelo haiku` → cambia a Claude Haiku
@@ -132,6 +144,14 @@ Solución: Playwright lanza Chromium headless y ejecuta pdfjs v3 desde CDN.
 Claude/Gemini ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
 **No cambiar a multi-llamada** — el costo sube y no mejora la precisión.
 **No agregar chain-of-thought** — empeora las asignaciones.
+
+### Panel web con Cloudflare Tunnel
+`web.js` levanta un servidor HTTP en el puerto `WEB_PORT` (default 3100). El acceso externo se hace via Cloudflare Tunnel (túnel `controlbun-web`, ID `4994129b-9a21-4e27-ad2e-440455820877`), sin abrir puertos en el router.
+- URL pública: `https://mapeos.controldoc.app` (CNAME en zona `controldoc.app`)
+- `tunnel.js` arranca cloudflared con el token en `CF_TUNNEL_TOKEN` del `.env`
+- Auth: token de un solo uso en URL → cookie `session` HttpOnly (24h) → chatId en Map en memoria
+- La sesión web muere si el bot se reinicia. El usuario pide nuevo `/web`.
+- La configuración de ingress está en Cloudflare (no en archivo local): `mapeos.controldoc.app → http://localhost:3100`
 
 ### Estado de sesión en memoria
 Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pierde el estado y debe volver a empezar. Aceptable — los flujos son cortos.
@@ -177,6 +197,11 @@ ADMIN_CHAT_ID=...
 AI_PROVIDER=gemini
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
+
+# Panel web
+CF_TUNNEL_TOKEN=...   # token del túnel controlbun-web en Cloudflare
+WEB_PORT=3100
+WEB_URL=https://mapeos.controldoc.app
 ```
 
 > La key de Gemini debe crearse desde **aistudio.google.com/apikey** (no desde Google Cloud Console — esas keys tienen cuotas en 0).
@@ -200,6 +225,7 @@ GEMINI_MODEL=gemini-2.5-flash
 | claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
 | claude.js: matchearPaginasConReqs | ✅ Funcionando con Gemini |
 | Flujo Trabajar en bot.js | ✅ Implementado |
+| Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end completa con clientes reales | ⏳ Pendiente |
 
@@ -207,13 +233,28 @@ GEMINI_MODEL=gemini-2.5-flash
 
 El flujo real de CD tiene 5 pasos que Playwright ejecuta en orden:
 
-1. **Navegar al req** — por `href` si existe, o click en la bandeja
+1. **Navegar al req** — dos modos según el href extraído de la bandeja (ver más abajo)
 2. **Click "Adjuntar archivo"** — en el frame `BandejaDetalle`
 3. **Asignar PDF** — `setInputFiles` en `input[type=file]` de `BandejaUpload`
 4. **Esperar "Archivo cargado con exito"** — confirma que el servidor recibió el archivo, luego click "Continuar"
 5. **Click "Enviar"** — via `__doPostBack('btnEnviar','')` directo en el frame `BandejaDetalle` (el botón tiene `onclick` con `ControlaEnviar()` que valida el archivo antes de postback)
 
 > El botón Enviar es `<input type="submit" id="btnEnviar">`. Se llama `__doPostBack` directamente para evitar race conditions con `ControlaEnviar()`.
+
+## Navegación a un requerimiento (dos modos)
+
+CD usa dos patrones distintos para links de reqs en la bandeja:
+
+| Tipo | Señal | Cómo navegar |
+|---|---|---|
+| **URL directa** | href tiene `noCache=` | `page.goto(href)` normal |
+| **fnDetalle** | `onclick="fnDetalle(ID);"` sin `noCache` | Ir a `Bandeja.aspx` primero, luego `page.evaluate((id) => fnDetalle(id), ID)` |
+
+`BandejaDetalle.aspx` **NO se puede navegar directamente** (devuelve HTTP 500). Solo funciona cargada como iframe dentro de `Bandeja.aspx`. Por eso los links `fnDetalle` necesitan pasar por la bandeja primero.
+
+`cdLeerRequerimientos` extrae el `origen=ID` del `onclick` y arma una URL `BandejaDetalle.aspx?origen=ID` (sin `noCache`). `cdSubirArchivo` y `_navegarAReq` detectan el tipo por ausencia de `noCache=` y usan `fnDetalle` en ese caso.
+
+`_navegarAReq` (fallback) re-lee la bandeja fresca antes de navegar — garantiza hrefs actuales si las sesiones de CD renuevan los tokens.
 
 ## Botón Buscar en la bandeja
 
@@ -227,8 +268,11 @@ CD tiene un retraso antes de que el botón "Buscar" esté listo. `_clickBuscarYE
 - No agregar chain-of-thought al prompt de Claude/Gemini para matching
 - No cambiar el flujo de 1 sola llamada a AI por matching
 - No commitear `.env`, `mapeos/`, `clientes/`, `pendientes.json`, `runtime.json` — datos sensibles
+- No commitear `public/` si tiene datos de usuarios (actualmente solo tiene el HTML estático, está bien commitearlo)
 - No guardar las credenciales de CD en texto plano en otro lado que no sea el JSON del cliente
 - No crear key de Gemini desde Google Cloud Console — usar aistudio.google.com
+- **No navegar directamente a `BandejaDetalle.aspx` con `page.goto`** si el href no tiene `noCache=` — CD devuelve HTTP 500. Siempre pasar por `Bandeja.aspx` + `fnDetalle(ID)`
+- No intentar hacer click en las filas de la bandeja para navegar — `__doPostBack` de ASP.NET falla con índices desfasados tras subidas anteriores
 
 ## Para continuar / debug
 

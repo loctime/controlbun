@@ -296,7 +296,7 @@ PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
 Para cada entidad identificada en el Paso 1:
   a) Asigná las páginas ancla que la identifican directamente.
-  b) Revisá el mapeo: ¿qué otros tipos de página requiere ese grupo? Buscá esas páginas entre las restantes sin asignar, comparando visualmente con las imágenes de referencia del mapeo.
+  b) Revisá el mapeo: ¿cuantas paginas exactas son? ¿qué otros tipos de página requiere ese grupo? Buscá esas páginas entre las restantes sin asignar, comparando visualmente con las imágenes de referencia del mapeo.
   c) Si hay varias páginas candidatas para el mismo slot y son visualmente idénticas: asignalas en orden de aparición — la 1ra candidata (menor número de página) va a la 1ra entidad (la que apareció antes en el documento), la 2da candidata a la 2da entidad, etc.
 
 PASO 3 — VERIFICAR Y DESCARTAR:

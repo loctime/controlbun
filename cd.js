@@ -157,7 +157,7 @@ export async function cdLeerRequerimientos(page) {
 
   await _clickBuscarYEsperar(page);
 
-  return await page.evaluate(() => {
+  const reqs = await page.evaluate(() => {
     function textoPlano(s) {
       return (s || "").replace(/\s+/g, " ").trim();
     }
@@ -271,9 +271,16 @@ export async function cdLeerRequerimientos(page) {
       if (!href) {
         for (const el of [link, tr]) {
           const oc = el.getAttribute("onclick") || "";
-          const m = oc.match(/location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i) ||
-                    oc.match(/['"](\/?[A-Za-z][^\s'"]*\.aspx[^'"]*)['"]/i);
-          if (m) { try { href = new URL(m[1], window.location.href).href; } catch {} }
+          // fnDetalle(ID) — patrón principal de CD para navegación de reqs
+          const fnMatch = oc.match(/fnDetalle\((\d+)\)/);
+          if (fnMatch) {
+            try { href = new URL(`BandejaDetalle.aspx?origen=${fnMatch[1]}`, window.location.href).href; } catch {}
+          }
+          if (!href) {
+            const m = oc.match(/location(?:\.href)?\s*=\s*['"]([^'"]+)['"]/i) ||
+                      oc.match(/['"](\/?[A-Za-z][^\s'"]*\.aspx[^'"]*)['"]/i);
+            if (m) { try { href = new URL(m[1], window.location.href).href; } catch {} }
+          }
           if (href) break;
         }
       }
@@ -287,6 +294,8 @@ export async function cdLeerRequerimientos(page) {
 
     return resultado;
   });
+
+  return reqs;
 }
 
 // Lee todos los TIPOS únicos de requerimientos de la cuenta (para /aprender).
@@ -330,62 +339,35 @@ export async function cdLeerTiposRequerimientos(page) {
   return tipos;
 }
 
-// Navega al requerimiento haciendo click en la fila de la bandeja (fallback cuando no hay href).
+// Navega al requerimiento cuando no hay href guardado.
+// Re-lee la bandeja en el momento de la subida para obtener un href fresco —
+// igual que /unico que siempre funciona porque lee y navega en el mismo momento.
 async function _navegarAReq(page, reqNombre, reqEntidad) {
-  await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(2000);
+  console.log(`[CD] _navegarAReq: re-leyendo bandeja para obtener href fresco`);
+  const reqsFrescos = await cdLeerRequerimientos(page);
 
-  // Expandir tabla a todos los registros (igual que cdLeerRequerimientos)
-  await page.evaluate(() => {
-    const sel = document.querySelector("select[name='tblRequerimientos_length']");
-    if (sel && sel.value !== "-1") {
-      sel.value = "-1";
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
+  const reqFresco = reqsFrescos.find(
+    (r) => r.nombre === reqNombre && (!reqEntidad || r.entidad === reqEntidad)
+  );
+
+  if (reqFresco?.href) {
+    console.log(`[CD] _navegarAReq: href fresco → ${reqFresco.href.slice(0, 80)}`);
+    const origenMatch = reqFresco.href.match(/origen=(\d+)/);
+    if (origenMatch && !reqFresco.href.includes("noCache=")) {
+      // URL de fnDetalle: ya estamos en Bandeja tras cdLeerRequerimientos, ejecutar fnDetalle
+      console.log(`[CD] _navegarAReq: ejecutando fnDetalle(${origenMatch[1]})`);
+      await page.evaluate((id) => { fnDetalle(id); }, parseInt(origenMatch[1]));
+      await page.waitForTimeout(3000);
+    } else {
+      await page.goto(reqFresco.href, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(1500);
     }
-  });
-  // Click en Buscar fuerza reload completo de DataTables (clave para ver todos los reqs)
-  await _clickBuscarYEsperar(page);
-
-  // Esperar a que la tabla tenga bastantes filas (señal de que expandió)
-  await page.waitForFunction(
-    () => document.querySelectorAll("tr td").length > 10,
-    { timeout: 15000 }
-  ).catch(() => {});
-
-  // Buscar y clickar via evaluate — reintenta hasta 3 veces con 2s entre intentos
-  const buscarYClickar = () => page.evaluate(({ nombre, entidad }) => {
-    const trs = document.querySelectorAll("tr");
-    for (const tr of trs) {
-      const trTxt = (tr.innerText || tr.textContent || "");
-      if (entidad && !trTxt.includes(entidad)) continue;
-      for (const a of tr.querySelectorAll("a")) {
-        const atxt = (a.innerText || a.textContent || "").trim();
-        if (atxt.includes(nombre)) {
-          a.click();
-          return { ok: true, texto: atxt };
-        }
-      }
-    }
-    const links = Array.from(document.querySelectorAll("a"))
-      .map((a) => (a.innerText || "").trim().slice(0, 50))
-      .filter((t) => t.length > 3);
-    return { ok: false, links };
-  }, { nombre: reqNombre, entidad: reqEntidad });
-
-  let res = await buscarYClickar();
-  for (let i = 0; !res.ok && i < 3; i++) {
-    console.log(`[CD] Link no encontrado, reintento ${i + 1}. Links visibles:`, res.links?.slice(0, 8));
-    await page.waitForTimeout(2000);
-    res = await buscarYClickar();
+    return;
   }
 
-  if (!res.ok) {
-    throw new Error(`No encontré el link "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""} en la bandeja`);
-  }
-  console.log(`[CD] Click en bandeja: "${res.texto}"`);
-
-  // BandejaDetalle se carga en un nuevo frame — esperar
-  await page.waitForTimeout(3000);
+  // Si cdLeerRequerimientos no encontró href, los logs de debug habrán mostrado
+  // el href-attr y onclick del link — usar esa info para el siguiente ciclo de mejoras.
+  throw new Error(`No se encontró href para "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""} en la bandeja. Ver logs [CD] Sin href para diagnóstico.`);
 }
 
 // Sube un archivo PDF a un requerimiento específico.
@@ -397,14 +379,30 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
 
   // ── Navegación al requerimiento ──────────────────────────────────────────────
   if (href && !href.startsWith("javascript:")) {
-    console.log(`${tag} Navegando por href: ${href.slice(0, 80)}`);
-    await page.goto(href, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1500);
+    if (href.includes("noCache=")) {
+      // URL directa (link.href de CD): navegar como página principal
+      console.log(`${tag} Navegando por href directo: ${href.slice(0, 80)}`);
+      await page.goto(href, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(1500);
+    } else {
+      // URL derivada de fnDetalle(ID): BandejaDetalle solo funciona como iframe
+      const origenMatch = href.match(/origen=(\d+)/);
+      if (origenMatch) {
+        console.log(`${tag} Navegando via fnDetalle(${origenMatch[1]}) desde bandeja`);
+        await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(1500);
+        await page.evaluate((id) => { fnDetalle(id); }, parseInt(origenMatch[1]));
+        await page.waitForTimeout(3000);
+      } else {
+        await page.goto(href, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(1500);
+      }
+    }
     console.log(`${tag} URL tras navegación: ${page.url().slice(0, 80)}`);
   } else {
     console.log(`${tag} Sin href válido — buscando link en la bandeja`);
     await _navegarAReq(page, reqNombre, reqEntidad);
-    console.log(`${tag} URL tras click en bandeja: ${page.url().slice(0, 80)}`);
+    console.log(`${tag} URL tras navegación: ${page.url().slice(0, 80)}`);
   }
 
   // Listar frames disponibles para diagnóstico
