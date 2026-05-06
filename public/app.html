@@ -43,44 +43,116 @@
     /* ── Header ── */
     header {
       position: sticky; top: 0; z-index: 100;
-      background: rgba(237,232,223,.88);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--border);
+      background: var(--text);
+      border-bottom: 1px solid rgba(255,255,255,.08);
       padding: 0 32px;
+      box-shadow: 0 2px 12px rgba(28,34,40,.18);
     }
     .h-inner {
       max-width: 1160px; margin: 0 auto;
-      height: 60px; display: flex; align-items: center; justify-content: space-between;
+      height: 56px; display: flex; align-items: center; justify-content: space-between;
     }
-    .h-brand { display: flex; align-items: baseline; gap: 10px; }
-    .h-logo { font-family: 'Crimson Pro', serif; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+    .h-brand { display: flex; align-items: center; gap: 12px; }
+    .h-logo { font-family: 'Crimson Pro', serif; font-size: 22px; font-weight: 600; letter-spacing: -.02em; color: #fff; }
     .h-logo em { color: var(--accent); font-style: normal; }
+    .h-divider { width:1px; height:18px; background:rgba(255,255,255,.18); }
     .h-tag {
       font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em;
-      color: var(--text-3); background: var(--border); padding: 2px 8px; border-radius: 100px;
+      color: rgba(255,255,255,.5); padding: 0;
     }
-    .h-user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+    .h-user { display: flex; align-items: center; gap: 9px; font-size: 13px; color: rgba(255,255,255,.75); }
     .h-avatar {
       width: 28px; height: 28px; border-radius: 50%;
-      background: var(--text); color: var(--bg);
+      background: var(--accent); color: #fff;
       display: flex; align-items: center; justify-content: center;
-      font-size: 12px; font-weight: 600;
+      font-size: 11px; font-weight: 600;
     }
 
     /* ── Main ── */
-    main { max-width: 1160px; margin: 0 auto; padding: 44px 32px; }
+    main { max-width: 1160px; margin: 0 auto; padding: 32px 32px; }
 
     /* ── Page header ── */
-    .ph { margin-bottom: 36px; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-    .ph-left h1 { font-family: 'Crimson Pro', serif; font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
-    .ph-left p { font-size: 13px; color: var(--text-3); margin-top: 5px; }
-    .ph-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .ph { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .ph-left { display:flex; align-items:baseline; gap:12px; }
+    .ph-left h1 { font-family: 'Crimson Pro', serif; font-size: 32px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
+    .ph-left p { font-size: 13px; color: var(--text-3); }
+    .ph-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .count {
       display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500;
       color: var(--text-2); background: var(--surface); border: 1px solid var(--border);
       padding: 5px 14px; border-radius: 100px;
     }
     .count strong { color: var(--text); }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .toolbar-search {
+      flex: 1; min-width: 200px; max-width: 320px;
+      padding: 7px 12px 7px 34px;
+      font-family: 'DM Sans', sans-serif; font-size: 13.5px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); outline: none; transition: border-color .15s;
+      position: relative;
+    }
+    .toolbar-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,94,42,.1); }
+    .search-wrap { position: relative; flex:1; min-width:200px; max-width:320px; }
+    .search-wrap svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--text-3); pointer-events:none; }
+    .view-toggle { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .view-btn {
+      padding: 6px 10px; background: var(--surface); border: none; cursor: pointer;
+      color: var(--text-3); transition: all .15s; display:flex; align-items:center;
+    }
+    .view-btn svg { width:15px; height:15px; }
+    .view-btn:hover { background: var(--surface-hover); color: var(--text-2); }
+    .view-btn.active { background: var(--text); color: #fff; }
+    .view-btn + .view-btn { border-left: 1px solid var(--border); }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--rl); overflow: hidden; box-shadow: var(--shadow-sm);
+    }
+    .mapeos-table { width: 100%; border-collapse: collapse; }
+    .mapeos-table thead tr {
+      background: var(--bg);
+      border-bottom: 2px solid var(--border);
+    }
+    .mapeos-table th {
+      padding: 10px 14px; text-align: left;
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--text-3); white-space: nowrap;
+    }
+    .mapeos-table th.th-center { text-align: center; }
+    .mapeos-table tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .12s;
+      animation: rowIn .3s ease both;
+    }
+    @keyframes rowIn { from { opacity:0; transform:translateX(-4px); } to { opacity:1; transform:none; } }
+    .mapeos-table tbody tr:last-child { border-bottom: none; }
+    .mapeos-table tbody tr:hover { background: var(--surface-hover); }
+    .mapeos-table td { padding: 10px 14px; vertical-align: middle; }
+    .td-thumbs {
+      padding: 8px 12px 8px 16px; white-space: nowrap;
+      width: 1px; /* shrink to content */
+    }
+    .td-thumbs .td-thumb-inner { display: inline-block; margin-right: 4px; }
+    .td-thumbs .td-thumb-inner:last-child { margin-right: 0; }
+    .td-thumb-inner {
+      width: 40px; height: 54px; border-radius: 5px; overflow: hidden;
+      border: 1px solid var(--border); cursor: zoom-in; flex-shrink:0;
+      transition: transform .15s; vertical-align: middle;
+    }
+    .td-thumb-inner:hover { transform: scale(1.08); z-index:1; position:relative; }
+    .td-thumb-inner img { width:100%; height:100%; object-fit:cover; display:block; }
+    .td-nombre { font-family:'Crimson Pro',serif; font-size:16px; font-weight:600; letter-spacing:-.01em; }
+    .td-meta { font-size:12px; color:var(--text-3); margin-top:1px; }
+    .td-pages { font-size:13px; color:var(--text-2); text-align:center; }
+    .td-actions { white-space:nowrap; text-align:right; padding-right:16px; }
+    .td-actions .btn + .btn { margin-left:4px; }
 
     /* ── Grid ── */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
@@ -587,13 +659,15 @@
     }
     @media (max-width:700px) {
       header { padding:0 16px; }
-      main { padding:28px 16px; }
-      .ph-left h1 { font-size:30px; }
+      main { padding:20px 16px; }
+      .ph-left h1 { font-size:26px; }
       .grid { grid-template-columns:1fr; }
       .editor-wrap { padding: 0 16px; }
       .editor-body { flex-direction: column; }
       .editor-right { width: 100%; border-left: none; border-top: 1px solid var(--border); height: 260px; }
       .editor-left { padding-right: 0; }
+      .td-thumbs { display:none; }
+      .toolbar-search { max-width:100%; }
     }
   </style>
 </head>
@@ -603,7 +677,8 @@
   <div class="h-inner">
     <div class="h-brand">
       <span class="h-logo">Control<em>Bun</em></span>
-      <span class="h-tag">Mapeos</span>
+      <span class="h-divider"></span>
+      <span class="h-tag">Gestión de mapeos</span>
     </div>
     <div class="h-user" id="hUser" style="display:none">
       <div class="h-avatar" id="hAvatar"></div>
@@ -624,7 +699,11 @@
 const GROUP_COLORS = ['#C05E2A','#2D5C8E','#2A7C5A','#7C4A8E','#8E6A2A','#5C2D2D','#2D5C3A','#5C522D'];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let S = { user: null, mapeos: [], reqs: [], reqsTimestamp: null };
+let S = {
+  user: null, mapeos: [], reqs: [], reqsTimestamp: null,
+  viewType: localStorage.getItem('viewType') || 'table',
+  searchQuery: '',
+};
 
 // Editor state — only active while editor view is open
 let E = null;
@@ -782,33 +861,88 @@ async function doLogin(e) {
   }
 }
 
+const searchSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M10.5 10.5l3 3"/></svg>`;
+const tableIcon = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="2.5" rx="1"/><rect x="1" y="7" width="14" height="2.5" rx="1"/><rect x="1" y="11" width="14" height="2.5" rx="1"/></svg>`;
+const gridIcon  = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>`;
+
+function setView(v) {
+  S.viewType = v;
+  localStorage.setItem('viewType', v);
+  render();
+}
+
+function filterSearch(q) {
+  S.searchQuery = q;
+  render();
+}
+
 function render() {
-  const { mapeos } = S;
-  const badge = mapeos.length
-    ? `<div class="count"><strong>${mapeos.length}</strong> tipo${mapeos.length>1?'s':''} aprendido${mapeos.length>1?'s':''}</div>`
-    : '';
+  const q = S.searchQuery.toLowerCase();
+  const mapeos = q ? S.mapeos.filter(m => m.nombre.toLowerCase().includes(q)) : S.mapeos;
 
-  const reqsInfo = S.reqs.length
-    ? `<span class="reqs-bar"><strong>${S.reqs.length}</strong> tipos de req cargados${S.reqsTimestamp ? ' · '+fmtDate(S.reqsTimestamp) : ''}</span>`
-    : `<span class="reqs-bar">Sin lista de requerimientos</span>`;
-
-  const cards = mapeos.length
-    ? mapeos.map((m, i) => card(m, i)).join('')
-    : `<div class="empty"><span class="empty-icon">📁</span><h2>Sin mapeos todavía</h2><p>Hacé click en <strong>Nuevo mapeo</strong> para agregar uno.</p></div>`;
+  const content = mapeos.length
+    ? (S.viewType === 'table' ? renderTable(mapeos) : `<div class="grid">${mapeos.map((m,i) => card(m,i)).join('')}</div>`)
+    : `<div style="text-align:center;padding:72px 24px"><span style="font-size:52px;display:block;margin-bottom:16px;opacity:.25">📁</span><p style="font-family:'Crimson Pro',serif;font-size:22px;color:var(--text-2);margin-bottom:6px">${q ? 'Sin resultados' : 'Sin mapeos todavía'}</p><p style="font-size:13px;color:var(--text-3)">${q ? `No hay mapeos que coincidan con "${esc(q)}"` : 'Hacé click en <strong>Nuevo mapeo</strong> para empezar.'}</p></div>`;
 
   document.getElementById('app').innerHTML = `
     <div class="ph">
       <div class="ph-left">
         <h1>Mis mapeos</h1>
-        <p>Imágenes de referencia para clasificación automática</p>
+        ${S.mapeos.length ? `<p style="font-size:13px;color:var(--text-3)">${S.mapeos.length} tipo${S.mapeos.length!==1?'s':''} aprendido${S.mapeos.length!==1?'s':''}</p>` : ''}
       </div>
       <div class="ph-right">
-        ${reqsInfo}
-        ${badge}
         <button class="btn btn-dark" onclick="openEditor()">${IC.plus} Nuevo mapeo</button>
       </div>
     </div>
-    <div class="grid">${cards}</div>`;
+    <div class="toolbar">
+      <div class="search-wrap">
+        ${searchSvg}
+        <input class="toolbar-search" type="text" placeholder="Buscar mapeo…" value="${esc(S.searchQuery)}" oninput="filterSearch(this.value)" autocomplete="off">
+      </div>
+      <div style="flex:1"></div>
+      <div class="view-toggle">
+        <button class="view-btn ${S.viewType==='table'?'active':''}" onclick="setView('table')" title="Vista tabla">${tableIcon}</button>
+        <button class="view-btn ${S.viewType==='cards'?'active':''}" onclick="setView('cards')" title="Vista tarjetas">${gridIcon}</button>
+      </div>
+    </div>
+    ${content}`;
+}
+
+function renderTable(mapeos) {
+  const editIcon = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l3 3-8 8H3v-3l8-8z"/></svg>`;
+  const rows = mapeos.map((m, i) => {
+    const delay = Math.min(i * 30, 300);
+    const count = Math.min(m.paginas, 4);
+    const thumbs = Array.from({ length: count }, (_, j) => {
+      const src = `/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}`;
+      return `<div class="td-thumb-inner" onclick="openLb('${src}')" title="Pág ${j+1}">
+        <img src="${src}" alt="" loading="lazy" onerror="this.parentElement.style.background='var(--bg)'">
+      </div>`;
+    }).join('');
+
+    return `<tr style="animation-delay:${delay}ms">
+      <td class="td-thumbs">${thumbs}</td>
+      <td>
+        <div class="td-nombre">${esc(m.nombre)}</div>
+        <div class="td-meta">${m.paginas} página${m.paginas!==1?'s':''} de referencia</div>
+      </td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-sm" data-nombre="${esc(m.nombre)}" onclick="openModify(this.dataset.nombre)">${editIcon} Modificar</button>
+        <button class="btn btn-danger btn-sm" data-nombre="${esc(m.nombre)}" onclick="openDel(this.dataset.nombre)">${IC.trash} Eliminar</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="table-wrap">
+    <table class="mapeos-table">
+      <thead><tr>
+        <th style="width:1px">Páginas</th>
+        <th>Tipo de documento</th>
+        <th style="width:160px;text-align:right;padding-right:16px">Acciones</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
 function card(m, i) {
