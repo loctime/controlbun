@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Mapeos — ControlBun</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #EDE8DF;
+      --surface: #FAF8F4;
+      --surface-hover: #F2EFE8;
+      --border: #D8D2C6;
+      --border-strong: #B8B0A0;
+      --text: #1C2228;
+      --text-2: #4A5058;
+      --text-3: #8A9099;
+      --accent: #C05E2A;
+      --accent-h: #A34E22;
+      --accent-s: #FDF0E8;
+      --danger: #B83228;
+      --danger-h: #922820;
+      --danger-s: #FFF0EE;
+      --shadow-sm: 0 1px 3px rgba(28,34,40,.08);
+      --shadow-md: 0 4px 16px rgba(28,34,40,.10);
+      --shadow-lg: 0 16px 48px rgba(28,34,40,.16);
+      --r: 10px;
+      --rl: 16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(237,232,223,.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+    }
+    .h-inner {
+      max-width: 1160px; margin: 0 auto;
+      height: 60px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .h-brand { display: flex; align-items: baseline; gap: 10px; }
+    .h-logo { font-family: 'Crimson Pro', serif; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+    .h-logo em { color: var(--accent); font-style: normal; }
+    .h-tag {
+      font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em;
+      color: var(--text-3); background: var(--border); padding: 2px 8px; border-radius: 100px;
+    }
+    .h-user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+    .h-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--text); color: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600;
+    }
+
+    /* ── Main ── */
+    main { max-width: 1160px; margin: 0 auto; padding: 44px 32px; }
+
+    /* ── Page header ── */
+    .ph { margin-bottom: 36px; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .ph-left h1 { font-family: 'Crimson Pro', serif; font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
+    .ph-left p { font-size: 13px; color: var(--text-3); margin-top: 5px; }
+    .count {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500;
+      color: var(--text-2); background: var(--surface); border: 1px solid var(--border);
+      padding: 5px 14px; border-radius: 100px;
+    }
+    .count strong { color: var(--text); }
+
+    /* ── Grid ── */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--rl);
+      overflow: hidden; box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s, transform .2s;
+      animation: cardIn .4s ease both;
+    }
+    .card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    @keyframes cardIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+
+    .card-imgs {
+      display: flex; background: #E5DFCF;
+      border-bottom: 1px solid var(--border); min-height: 180px; overflow: hidden;
+    }
+    .card-img {
+      flex: 1; object-fit: cover; cursor: zoom-in;
+      transition: transform .3s; min-width: 0; display: block;
+    }
+    .card-img:hover { transform: scale(1.04); }
+    .card-img + .card-img { border-left: 1px solid var(--border); }
+    .card-no-img { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: 13px; }
+
+    .card-body { padding: 14px 16px; }
+    .card-name { font-family: 'Crimson Pro', serif; font-size: 17px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin-bottom: 3px; }
+    .card-meta { font-size: 12px; color: var(--text-3); margin-bottom: 12px; }
+    .card-actions { display: flex; gap: 7px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 500;
+      padding: 6px 12px; border-radius: 7px; border: 1px solid transparent;
+      cursor: pointer; transition: all .15s; white-space: nowrap; line-height: 1;
+    }
+    .btn svg { width:14px; height:14px; flex-shrink:0; }
+    .btn-ghost { background: var(--surface); color: var(--text-2); border-color: var(--border); }
+    .btn-ghost:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
+    .btn-danger { background: var(--danger-s); color: var(--danger); border-color: rgba(184,50,40,.18); }
+    .btn-danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-accent:hover { background: var(--accent-h); border-color: var(--accent-h); }
+    .btn-dark { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .btn-dark:hover { background: #2D3640; }
+    .btn:disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
+
+    /* ── Empty / loading ── */
+    .empty { grid-column:1/-1; text-align:center; padding:72px 24px; }
+    .empty-icon { font-size:56px; display:block; margin-bottom:16px; opacity:.3; }
+    .empty h2 { font-family:'Crimson Pro',serif; font-size:26px; font-weight:400; color:var(--text-2); margin-bottom:8px; }
+    .empty p { font-size:13px; color:var(--text-3); }
+
+    .loading { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:280px; gap:14px; color:var(--text-3); }
+    .spin { width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── Modal ── */
+    .overlay {
+      position:fixed;inset:0;background:rgba(28,34,40,.52);
+      backdrop-filter:blur(4px);z-index:200;
+      display:flex;align-items:center;justify-content:center;padding:20px;
+      animation:fadeIn .18s ease;
+    }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+    .modal {
+      background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);
+      box-shadow:var(--shadow-lg);width:100%;max-width:520px;
+      max-height:88vh;display:flex;flex-direction:column;
+      animation:modalIn .22s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes modalIn { from{opacity:0;transform:scale(.93) translateY(8px)} to{opacity:1;transform:none} }
+
+    .modal-hd {
+      padding:18px 22px;border-bottom:1px solid var(--border);
+      display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-shrink:0;
+    }
+    .modal-title { font-family:'Crimson Pro',serif; font-size:20px; font-weight:600; letter-spacing:-.01em; line-height:1.2; }
+    .modal-sub { font-size:12.5px; color:var(--text-3); margin-top:3px; }
+    .modal-x {
+      width:26px;height:26px;border-radius:6px;border:none;background:none;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;color:var(--text-3);flex-shrink:0;
+      transition:all .15s;
+    }
+    .modal-x:hover { background:var(--border); color:var(--text); }
+
+    .modal-body { padding:22px;overflow-y:auto;flex:1; }
+    .modal-ft {
+      padding:14px 22px;border-top:1px solid var(--border);
+      display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;background:var(--surface);
+    }
+
+    /* ── Upload zone ── */
+    .drop-zone {
+      border:2px dashed var(--border-strong);border-radius:var(--r);
+      padding:36px 20px;text-align:center;cursor:pointer;
+      transition:all .2s;background:var(--bg);position:relative;
+    }
+    .drop-zone:hover, .drop-zone.over { border-color:var(--accent); background:var(--accent-s); }
+    .drop-zone input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    .drop-icon { font-size:32px;display:block;margin-bottom:10px; }
+    .drop-text { font-size:13.5px;font-weight:500;color:var(--text-2);margin-bottom:3px; }
+    .drop-hint { font-size:12px;color:var(--text-3); }
+
+    /* ── Page selector ── */
+    .sel-label { font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin-bottom:11px; }
+    .pages-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:9px; }
+    .page-th {
+      border:2px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;
+      position:relative;transition:all .15s;
+    }
+    .page-th:hover { border-color:var(--accent); }
+    .page-th.sel { border-color:var(--accent);box-shadow:0 0 0 3px rgba(192,94,42,.18); }
+    .page-th img { width:100%;display:block;aspect-ratio:3/4;object-fit:cover; }
+    .page-num {
+      position:absolute;top:5px;left:5px;background:rgba(28,34,40,.72);color:#fff;
+      font-size:10.5px;font-weight:600;padding:2px 5px;border-radius:4px;
+    }
+    .page-check {
+      position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;
+      background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;
+      opacity:0;transition:opacity .15s;
+    }
+    .page-th.sel .page-check { opacity:1; }
+
+    /* ── Progress ── */
+    .prog { text-align:center;padding:28px 0; }
+    .prog .spin { margin:0 auto 12px; }
+    .prog p { font-size:13px;color:var(--text-3); }
+
+    /* ── Confirm ── */
+    .confirm-body { text-align:center;padding:28px 22px; }
+    .confirm-icon { font-size:36px;display:block;margin-bottom:14px; }
+    .confirm-text { font-size:14px;color:var(--text-2);line-height:1.6; }
+    .confirm-name { font-weight:600;color:var(--text); }
+
+    /* ── Lightbox ── */
+    .lb {
+      position:fixed;inset:0;background:rgba(10,12,16,.94);z-index:300;
+      display:flex;align-items:center;justify-content:center;cursor:zoom-out;
+      animation:fadeIn .18s ease;
+    }
+    .lb img { max-width:92vw;max-height:92vh;object-fit:contain;border-radius:4px;box-shadow:0 20px 80px rgba(0,0,0,.6); }
+
+    /* ── Toast ── */
+    .toasts { position:fixed;bottom:22px;right:22px;z-index:400;display:flex;flex-direction:column;gap:7px; }
+    .toast {
+      padding:10px 16px;border-radius:var(--r);font-size:13px;font-weight:500;
+      box-shadow:var(--shadow-md);display:flex;align-items:center;gap:7px;max-width:300px;
+      animation:toastIn .25s cubic-bezier(.34,1.56,.64,1);
+    }
+    .toast.ok { background:#1A4032;color:#C4F5DD; }
+    .toast.err { background:#4A1810;color:#FFD0CC; }
+    @keyframes toastIn { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:none} }
+
+    /* ── Auth error ── */
+    .auth-err {
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      min-height:100vh;text-align:center;padding:32px;
+    }
+    .auth-err .num { font-family:'Crimson Pro',serif;font-size:100px;font-weight:600;line-height:1;color:var(--border-strong);letter-spacing:-.04em; }
+    .auth-err h1 { font-family:'Crimson Pro',serif;font-size:28px;font-weight:400;margin-bottom:10px; }
+    .auth-err p { font-size:14px;color:var(--text-3);max-width:360px;line-height:1.6; }
+    .auth-err code { background:var(--border);padding:2px 6px;border-radius:4px; }
+
+    @media (max-width:600px) {
+      header { padding:0 16px; }
+      main { padding:28px 16px; }
+      .ph-left h1 { font-size:30px; }
+      .grid { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="h-inner">
+    <div class="h-brand">
+      <span class="h-logo">Control<em>Bun</em></span>
+      <span class="h-tag">Mapeos</span>
+    </div>
+    <div class="h-user" id="hUser" style="display:none">
+      <div class="h-avatar" id="hAvatar"></div>
+      <span id="hName"></span>
+    </div>
+  </div>
+</header>
+
+<main id="app">
+  <div class="loading"><div class="spin"></div><span>Cargando…</span></div>
+</main>
+
+<div class="toasts" id="toasts"></div>
+<div class="lb" id="lb" style="display:none" onclick="closeLb()"><img id="lbImg" src="" alt=""></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let S = { user: null, mapeos: [] };
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function apiFetch(method, path, body) {
+  const opts = { method };
+  if (body instanceof ArrayBuffer) {
+    opts.headers = { 'Content-Type': 'application/octet-stream' };
+    opts.body = body;
+  } else if (body) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opts);
+  if (r.status === 401) { renderUnauth(); throw new Error('401'); }
+  return r;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg, type='ok') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+const IC = {
+  trash: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5.5 4V3a.5.5 0 01.5-.5h4a.5.5 0 01.5.5v1M6.5 7v5M9.5 7v5M3 4l.8 8.4a1 1 0 001 .9h6.4a1 1 0 001-.9L13 4"/></svg>`,
+  upload: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10V2M5 5l3-3 3 3M2 11v1.5a1 1 0 001 1h10a1 1 0 001-1V11"/></svg>`,
+  x: `<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l12 12M13 1L1 13"/></svg>`,
+  check: `<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg>`,
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const r = await fetch('/api/me');
+    if (!r.ok) { renderUnauth(); return; }
+    S.user = await r.json();
+    document.getElementById('hUser').style.display = 'flex';
+    document.getElementById('hName').textContent = S.user.nombre;
+    document.getElementById('hAvatar').textContent = S.user.nombre.charAt(0).toUpperCase();
+    await loadMapeos();
+  } catch(e) { if (e.message !== '401') renderUnauth(); }
+}
+
+async function loadMapeos() {
+  const r = await apiFetch('GET', '/api/mapeos');
+  S.mapeos = await r.json();
+  render();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderUnauth() {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-err">
+      <div class="num">401</div>
+      <h1>Sesión expirada</h1>
+      <p>Pedí un nuevo link enviando <code>/web</code> en el chat de Telegram.</p>
+    </div>`;
+}
+
+function render() {
+  const { mapeos } = S;
+  const badge = mapeos.length
+    ? `<div class="count"><strong>${mapeos.length}</strong> tipo${mapeos.length>1?'s':''} aprendido${mapeos.length>1?'s':''}</div>`
+    : '';
+
+  const cards = mapeos.length
+    ? mapeos.map((m, i) => card(m, i)).join('')
+    : `<div class="empty"><span class="empty-icon">📁</span><h2>Sin mapeos todavía</h2><p>Usá <strong>/aprender</strong> en Telegram para enseñarle al bot los tipos de documentos.</p></div>`;
+
+  document.getElementById('app').innerHTML = `
+    <div class="ph">
+      <div class="ph-left">
+        <h1>Mis mapeos</h1>
+        <p>Imágenes de referencia para clasificación automática</p>
+      </div>
+      ${badge}
+    </div>
+    <div class="grid">${cards}</div>`;
+}
+
+function card(m, i) {
+  const delay = Math.min(i * 45, 280);
+  let imgs = '';
+  for (let j = 0; j < Math.min(m.paginas, 2); j++) {
+    imgs += `<img class="card-img" src="/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}" alt="Pág ${j+1}" loading="lazy" onclick="openLb(this.src)">`;
+  }
+  if (!imgs) imgs = '<div class="card-no-img">Sin imagen</div>';
+
+  return `<div class="card" style="animation-delay:${delay}ms">
+    <div class="card-imgs">${imgs}</div>
+    <div class="card-body">
+      <div class="card-name">${esc(m.nombre)}</div>
+      <div class="card-meta">${m.paginas} página${m.paginas!==1?'s':''} de referencia</div>
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="openReplace(${JSON.stringify(m.nombre)})">${IC.upload} Reemplazar</button>
+        <button class="btn btn-danger" onclick="openDel(${JSON.stringify(m.nombre)})">${IC.trash} Eliminar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLb(src) {
+  document.getElementById('lbImg').src = src;
+  document.getElementById('lb').style.display = 'flex';
+}
+function closeLb() { document.getElementById('lb').style.display = 'none'; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLb(); closeModal(); } });
+
+// ── Modal helpers ─────────────────────────────────────────────────────────────
+let _modal = null;
+
+function openModal(html) {
+  closeModal();
+  _modal = document.createElement('div');
+  _modal.className = 'overlay';
+  _modal.innerHTML = html;
+  _modal.addEventListener('click', e => { if (e.target === _modal) closeModal(); });
+  document.body.appendChild(_modal);
+}
+
+function closeModal() {
+  if (_modal) { _modal.remove(); _modal = null; }
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+function openDel(nombre) {
+  openModal(`<div class="modal">
+    <div class="confirm-body">
+      <span class="confirm-icon">🗑️</span>
+      <p class="confirm-text">¿Eliminar el mapeo<br><span class="confirm-name">"${esc(nombre)}"</span>?<br><small style="color:var(--text-3)">Esta acción no se puede deshacer.</small></p>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="doDel(${JSON.stringify(nombre)})">${IC.trash} Eliminar</button>
+    </div>
+  </div>`);
+}
+
+async function doDel(nombre) {
+  try {
+    await apiFetch('DELETE', `/api/mapeo/${encodeURIComponent(nombre)}`);
+    S.mapeos = S.mapeos.filter(m => m.nombre !== nombre);
+    closeModal();
+    render();
+    toast(`"${nombre}" eliminado`);
+  } catch { toast('Error al eliminar', 'err'); }
+}
+
+// ── Replace ───────────────────────────────────────────────────────────────────
+let _rState = { nombre: null, paginasData: [], sel: [] };
+
+function openReplace(nombre) {
+  _rState = { nombre, paginasData: [], sel: [] };
+  openModal(`<div class="modal">
+    <div class="modal-hd">
+      <div>
+        <div class="modal-title">Reemplazar referencia</div>
+        <div class="modal-sub">${esc(nombre)}</div>
+      </div>
+      <button class="modal-x" onclick="closeModal()">${IC.x}</button>
+    </div>
+    <div class="modal-body" id="rBody">${dropZone(nombre)}</div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-accent" id="rSave" style="display:none" onclick="doReplace()">${IC.upload} Guardar</button>
+    </div>
+  </div>`);
+  bindDrop(nombre);
+}
+
+function dropZone(nombre) {
+  return `<div class="drop-zone" id="dz">
+    <input type="file" accept="application/pdf" onchange="handleFile(event, ${JSON.stringify(nombre)})">
+    <span class="drop-icon">📄</span>
+    <p class="drop-text">Subir PDF de referencia</p>
+    <p class="drop-hint">Arrastrá el archivo o hacé click para elegirlo</p>
+  </div>`;
+}
+
+function bindDrop(nombre) {
+  setTimeout(() => {
+    const dz = document.getElementById('dz');
+    if (!dz) return;
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault(); dz.classList.remove('over');
+      const f = e.dataTransfer.files[0];
+      if (f?.type === 'application/pdf') handleFile({ target: { files: [f] } }, nombre);
+    });
+  }, 0);
+}
+
+async function handleFile(e, nombre) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const body = document.getElementById('rBody');
+  body.innerHTML = `<div class="prog"><div class="spin"></div><p>Procesando PDF…</p></div>`;
+
+  try {
+    const buf = await file.arrayBuffer();
+    const r = await apiFetch('POST', `/api/mapeo/${encodeURIComponent(nombre)}/upload`, buf);
+    if (!r.ok) throw new Error(await r.text());
+    const { paginas } = await r.json();
+    _rState.paginasData = paginas;
+    _rState.sel = [];
+
+    body.innerHTML = `
+      <p class="sel-label">${paginas.length} página${paginas.length>1?'s':''} — seleccioná las de referencia</p>
+      <div class="pages-grid" id="pgrid">
+        ${paginas.map((p, i) => `
+          <div class="page-th" id="pt${i}" onclick="togglePage(${i})">
+            <img src="data:image/jpeg;base64,${p.imagen}" alt="Pág ${p.num}" loading="lazy">
+            <span class="page-num">Pág ${p.num}</span>
+            <span class="page-check">${IC.check}</span>
+          </div>`).join('')}
+      </div>`;
+
+    if (paginas.length === 1) togglePage(0);
+    document.getElementById('rSave').style.display = 'inline-flex';
+  } catch(err) {
+    body.innerHTML = dropZone(nombre);
+    bindDrop(nombre);
+    toast(`Error: ${err.message}`, 'err');
+  }
+}
+
+function togglePage(i) {
+  const el = document.getElementById(`pt${i}`);
+  if (!el) return;
+  const pos = _rState.sel.indexOf(i);
+  if (pos === -1) { _rState.sel.push(i); el.classList.add('sel'); }
+  else { _rState.sel.splice(pos, 1); el.classList.remove('sel'); }
+  const btn = document.getElementById('rSave');
+  if (btn) btn.disabled = _rState.sel.length === 0;
+}
+
+async function doReplace() {
+  if (!_rState.sel.length) { toast('Seleccioná al menos una página', 'err'); return; }
+  const btn = document.getElementById('rSave');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+
+  const paginas = [..._rState.sel]
+    .sort((a, b) => a - b)
+    .map(i => ({ num: _rState.paginasData[i].num, imagen: _rState.paginasData[i].imagen, texto: '' }));
+
+  try {
+    const r = await apiFetch('PATCH', `/api/mapeo/${encodeURIComponent(_rState.nombre)}`, { paginas });
+    if (!r.ok) throw new Error('Error guardando');
+    const m = S.mapeos.find(m => m.nombre === _rState.nombre);
+    if (m) m.paginas = paginas.length;
+    closeModal();
+    render();
+    toast(`Referencia de "${_rState.nombre}" actualizada`);
+  } catch {
+    toast('Error guardando los cambios', 'err');
+    if (btn) { btn.disabled = false; btn.innerHTML = `${IC.upload} Guardar`; }
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

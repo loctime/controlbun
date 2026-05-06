@@ -6,6 +6,8 @@ import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto } f
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo } from "./cd.js";
 import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
 import { tonteria } from "./tonterias.js";
+import { startWebServer, generarTokenWeb } from "./web.js";
+import { startTunnel } from "./tunnel.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
 const ADMIN_ID = process.env.ADMIN_CHAT_ID;
@@ -134,6 +136,18 @@ async function guardarSesionMapeo(chatId) {
 bot.command("miid", (ctx) =>
   ctx.reply(`Tu chat ID es: <code>${ctx.chat.id}</code>`, { parse_mode: "HTML" })
 );
+
+bot.command("web", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  const token = generarTokenWeb(chatId);
+  const webUrl = process.env.WEB_URL || "https://mapeos.controldoc.app";
+  return ctx.reply(
+    `🌐 <b>Panel de mapeos</b>\n\nHacé click en el link para acceder desde tu computadora:\n<a href="${webUrl}/auth?t=${token}">${webUrl}</a>\n\n⏱ El link expira en 10 minutos.`,
+    { parse_mode: "HTML", link_preview_options: { is_disabled: true } }
+  );
+});
 
 bot.command("modelo", async (ctx) => {
   if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
@@ -272,6 +286,22 @@ bot.command("unico", async (ctx) => {
     return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
   setSesion(chatId, { fase: "unico_esperando_pdf" });
   return ctx.reply("📎 Modo único activado. Mandame el PDF a subir.");
+});
+
+bot.command("estado", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+
+  const mapeos = await leerTodosMapeosPorTipo(chatId);
+  const cuentaCD = cliente.cdUser
+    ? `✅ <code>${escapeHtml(cliente.cdUser)}</code>`
+    : "❌ No configurada — usá /config";
+
+  return ctx.reply(
+    `👤 <b>${escapeHtml(cliente.nombre)}</b>\n\nCuenta CD: ${cuentaCD}\nMapeos aprendidos: <b>${mapeos.length}</b>`,
+    { parse_mode: "HTML" }
+  );
 });
 
 bot.command("listo", async (ctx) => {
@@ -961,6 +991,7 @@ bot.catch((err) => console.error("[BOT ERROR]", err.message));
 
 async function setupCommands() {
   const base = [
+    { command: "estado", description: "Ver tu cuenta conectada y mapeos" },
     { command: "miid", description: "Ver tu chat ID" },
     { command: "config", description: "Configurar credenciales de controldocumentario.com" },
     { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
@@ -968,6 +999,7 @@ async function setupCommands() {
     { command: "listo", description: "Finalizar mapeo actual" },
     { command: "unico", description: "Subir un PDF directo a un requerimiento (sin IA)" },
     { command: "mapeos", description: "Ver, reemplazar o eliminar mapeos guardados" },
+    { command: "web", description: "Abrir el panel de mapeos en la web" },
   ];
   await bot.api.setMyCommands(base, { scope: { type: "default" } });
   if (ADMIN_ID) {
@@ -979,5 +1011,7 @@ async function setupCommands() {
 }
 
 setupCommands().catch((e) => console.error("[SETUP ERROR]", e.message));
+startWebServer();
+startTunnel();
 bot.start();
 console.log(`ControlBun corriendo… Admin: ${ADMIN_ID || "⚠️ NO CONFIGURADO"}`);

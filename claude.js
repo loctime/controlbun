@@ -286,20 +286,27 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
     type: "text",
     text: `
 
-TAREA: agrupar las páginas nuevas por entidad e identificar los requerimientos pendientes correspondientes.
+TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos pendientes.
 
-PASO 1 — AGRUPAR POR ENTIDAD:
-Leé la patente del vehículo o el nombre del empleado en CADA página.
-Agrupá las páginas que pertenecen a la misma entidad (misma patente o misma persona).
-CRÍTICO: cada grupo debe tener EXACTAMENTE la cantidad de páginas indicada para ese tipo de documento.
-Si una entidad aparece en más o menos páginas de las esperadas, revisá si leíste mal la patente/nombre.
+PASO 1 — IDENTIFICAR ENTIDADES:
+Leé todas las páginas nuevas. Las que muestran una patente de vehículo o nombre de empleado son las páginas "ancla" — cada valor único es una entidad distinta.
 
-PASO 2 — IDENTIFICAR REQUERIMIENTOS:
-Para cada grupo, encontrá TODOS los requerimientos pendientes que coinciden visualmente con los Tipos aprendidos:
-- Comparar el tipo de documento (visualmente) con las imágenes de referencia.
-- El nombre del req incluye un período (ej: "-2026-4") — ignorarlo al comparar con el tipo aprendido.
-- Si dos Tipos aprendidos son visualmente idénticos o muy similares, incluí los reqs de AMBOS.
-- SOLO asignár reqs cuyo tipo base coincida con algún Tipo aprendido. No inventar nuevos tipos.
+PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
+El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
+Para cada entidad identificada en el Paso 1:
+  a) Asigná las páginas ancla que la identifican directamente.
+  b) Revisá el mapeo: ¿qué otros tipos de página requiere ese grupo? Buscá esas páginas entre las restantes sin asignar, comparando visualmente con las imágenes de referencia del mapeo.
+  c) Si hay varias páginas candidatas para el mismo slot y son visualmente idénticas: asignalas en orden de aparición — la 1ra candidata (menor número de página) va a la 1ra entidad (la que apareció antes en el documento), la 2da candidata a la 2da entidad, etc.
+
+PASO 3 — VERIFICAR Y DESCARTAR:
+Cada grupo debe quedar exactamente como indica el mapeo. Si falta algún tipo de página para completar un grupo → descartarlo. El mapeo manda: no aceptar grupos incompletos.
+
+PASO 4 — ASIGNAR REQUERIMIENTOS:
+Para cada grupo completo, encontrá TODOS los requerimientos pendientes que coinciden con sus tipos de documento:
+- Comparar visualmente con las imágenes de referencia del mapeo.
+- Ignorar el sufijo de período en el nombre del req (ej: "-2026-4") al comparar.
+- Si dos tipos del mapeo son visualmente similares, incluí los reqs de ambos.
+- Solo asignar reqs que coincidan con algún tipo aprendido. No inventar tipos.
 
 Respondé SOLO JSON válido, sin texto extra:
 {
@@ -310,8 +317,8 @@ Respondé SOLO JSON válido, sin texto extra:
   "sinAsignar": []
 }
 
-reqs: array de números (1-based) de la lista de reqs pendientes.
-sinAsignar: páginas que definitivamente no corresponden a ningún tipo aprendido.`,
+reqs: números 1-based de la lista de reqs pendientes.
+sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron de grupos descartados.`,
   });
 
   const resp = await llamarClaude({

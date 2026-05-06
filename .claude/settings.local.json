@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where cloudflared *)",
+      "Bash(curl -s -H 'Authorization: Bearer cfat_oZonAfGBL6yq1j0R0PdOdweVg3mwdL3KBCeJogjb581a6935' 'https://api.cloudflare.com/client/v4/zones?account.id=40e11ff1f19d7a4e3bb095424b6c2da1')",
+      "Bash(node -p \"JSON.parse\\(require\\('fs'\\).readFileSync\\('/tmp/zones.json','utf8'\\)\\).result?.map\\(z=>z.name+' '+z.id\\).join\\('\\\\n'\\)\")",
+      "Bash(timeout 8 node bot.js)",
+      "Bash(node -e ' *)",
+      "Bash(timeout 12 node bot.js)",
+      "PowerShell(Get-NetTCPConnection *)"
+    ]
+  }
+}
