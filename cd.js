@@ -796,7 +796,7 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
 
 // Automates the Generar modal (inside its iframe) to create a new requirement.
 // tipo: normalized name ("empresa" | "personal" | "maquinas")
-export async function cdGenerarRequerimiento(page, tipo, nombreRequerido) {
+export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector = null) {
   const tag = `[GENERAR] "${nombreRequerido}" (${tipo})`;
   const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
   const buscado = norm(nombreRequerido);
@@ -879,16 +879,62 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido) {
   // Wait for setSobre AJAX to settle (entity list or hidden fields)
   await page.waitForTimeout(3000);
 
-
-  // Click "Todos" if there are checkboxes
-  if ((snapPost.cbs || 0) > 0) {
-    try {
-      await mf.locator('a').filter({ hasText: /^todos?$/i }).first().click({ timeout: 3000 });
-      console.log(`${tag} "Todos" clickeado`);
-      await page.waitForTimeout(800);
-    } catch {
-      console.log(`${tag} "Todos" no encontrado`);
+  // Handle optional "Sectores" dropdown (appears for some empresa-type sobres)
+  const sectoresInfo = await mf.evaluate(() => {
+    let sel = document.getElementById("cmbSectores") || document.getElementById("cmbSector");
+    if (!sel) {
+      sel = Array.from(document.querySelectorAll("select")).find(s =>
+        s.options[0] && /sector/i.test(s.options[0].text) && s.offsetParent !== null
+      );
     }
+    if (!sel || !sel.offsetParent) return null;
+    const opts = Array.from(sel.options).filter(o => o.value && o.value.trim() !== "");
+    return opts.length > 0 ? { id: sel.id, opts: opts.map(o => ({ value: o.value, text: o.text.trim() })) } : null;
+  });
+
+  const _seleccionarSector = async (id, v) => {
+    await mf.evaluate(({ id, v }) => {
+      const sel = document.getElementById(id);
+      sel.value = v;
+      // Try named handler (CD pattern: setSectores / setSector), then onchange, then event
+      const fnName = `set${id.replace(/^cmb/i, "")}`;
+      if (typeof window[fnName] === "function") window[fnName](sel);
+      else if (typeof sel.onchange === "function") sel.onchange.call(sel);
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }, { id, v });
+    await page.waitForTimeout(1500);
+  };
+
+  if (sectoresInfo) {
+    if (sectoresInfo.opts.length === 1) {
+      await _seleccionarSector(sectoresInfo.id, sectoresInfo.opts[0].value);
+      console.log(`${tag} Sector auto-seleccionado: "${sectoresInfo.opts[0].text}"`);
+    } else if (sector) {
+      const opt = sectoresInfo.opts.find(o =>
+        o.text.toLowerCase().includes(sector.toLowerCase()) || String(o.value) === String(sector)
+      );
+      if (!opt) {
+        const err = new Error(`Sector "${sector}" no encontrado. Opciones: ${sectoresInfo.opts.map(o => o.text).join(", ")}`);
+        err.screenshot = await capturar();
+        throw err;
+      }
+      await _seleccionarSector(sectoresInfo.id, opt.value);
+      console.log(`${tag} Sector seleccionado: "${opt.text}"`);
+    } else {
+      const err = new Error(`Debe informar sector`);
+      err.screenshot = await capturar();
+      err.sectores = sectoresInfo.opts;
+      throw err;
+    }
+  }
+
+  // Click "Todos" if the link exists (selects all entity checkboxes)
+  try {
+    await mf.locator('a').filter({ hasText: /^todos?$/i }).first().click({ timeout: 2000 });
+    console.log(`${tag} "Todos" clickeado`);
+    await page.waitForTimeout(800);
+  } catch {
+    // No "Todos" link — empresa type with no entity list, proceed directly
   }
 
   // Override alert/confirm so they don't block, then call GrabarRequerimientos normally
@@ -904,11 +950,18 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido) {
       ? GrabarRequerimientos(btn)
       : null;
 
-    return { result, hfTipo: document.getElementById("hfTipoRecurso")?.value, alerta: window.__cdAlert };
+    const hfSector = document.getElementById("hfSector") || document.getElementById("hfSectores");
+    return {
+      result,
+      hfTipo: document.getElementById("hfTipoRecurso")?.value,
+      hfSector: hfSector?.value,
+      alerta: window.__cdAlert,
+    };
   }).catch(e => ({ error: e.message }));
 
   const alerta = grabarResult.alerta || null;
   const exito = grabarResult.result === true;
+  console.log(`${tag} hfTipo=${grabarResult.hfTipo} hfSector=${grabarResult.hfSector}`);
   console.log(`${tag} ${exito ? "✅" : "❌"} ${alerta || JSON.stringify(grabarResult)}`);
 
   if (!exito) {

@@ -242,6 +242,8 @@ Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pie
 | `trabajar_generables` | Post-subida: mostrando lista de docs sin requerido en CD, esperando selección |
 | `trabajar_generando` | Procesando items a generar en secuencia |
 | `trabajar_generando_tipo` | Esperando que el usuario elija el tipo (empresa/personal/máquinas) para un requerido |
+| `trabajar_generando_sector` | Esperando que el usuario elija el sector del dropdown de CD (aparece en sobres empresa) |
+| `generar_sector` | Igual pero desde el flujo manual /generar |
 
 ## AI Provider
 

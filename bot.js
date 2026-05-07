@@ -1104,6 +1104,24 @@ bot.on("message", async (ctx) => {
     return _generarItem(ctx, chatId, itemActual, tipo);
   }
 
+  // ── Trabajar: el usuario elige el sector manualmente ──
+  if (sesion.fase === "trabajar_generando_sector" && texto && !texto.startsWith("/")) {
+    const { sectores, itemActual, tipoActual } = sesion;
+    const n = parseInt(texto.trim());
+    let sectorElegido = null;
+    if (n >= 1 && n <= sectores.length) sectorElegido = sectores[n - 1];
+    else {
+      const lower = texto.toLowerCase();
+      sectorElegido = sectores.find(s => s.text.toLowerCase().includes(lower)) || null;
+    }
+    if (!sectorElegido) {
+      const lineas = sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
+      return ctx.reply(`Escribí un número del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
+    }
+    setSesion(chatId, { ...getSesion(chatId), fase: "trabajar_generando" });
+    return _generarItem(ctx, chatId, itemActual, tipoActual, sectorElegido.value);
+  }
+
   // ── /generar: usuario busca y elige el tipo a generar ──
   if (sesion.fase === "generar_buscando" && texto && !texto.startsWith("/")) {
     if (/^(cancelar|no)$/i.test(texto)) {
@@ -1150,23 +1168,23 @@ bot.on("message", async (ctx) => {
     const { elegido, cdUser, cdPass } = sesion;
     await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
 
+    let tipoGenerar = null;
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
       if (!sesCD.ok) throw new Error(sesCD.motivo);
 
-      // Find tipo: check saved mapping first, then scrape
-      let tipo = await leerTipoMapeo(chatId, elegido.nombre);
+      tipoGenerar = await leerTipoMapeo(chatId, elegido.nombre);
 
-      if (!tipo) {
+      if (!tipoGenerar) {
         await ctx.reply(`🔍 Buscando categoría de "<b>${escapeHtml(elegido.nombre)}</b>" en CD…`, { parse_mode: "HTML" });
         const resultado = await cdScrapearTipoRequerimiento(sesCD.page, elegido.nombre);
         if (resultado) {
-          tipo = resultado.tipo;
-          await guardarTipoMapeo(chatId, elegido.nombre, tipo);
+          tipoGenerar = resultado.tipo;
+          await guardarTipoMapeo(chatId, elegido.nombre, tipoGenerar);
         }
       }
 
-      if (!tipo) {
+      if (!tipoGenerar) {
         setSesion(chatId, { fase: "generar_tipo_manual", elegido, cdUser, cdPass });
         return ctx.reply(
           `No pude determinar la categoría de "<b>${escapeHtml(elegido.nombre)}</b>" automáticamente.\n\n¿A cuál pertenece?\n1. empresa\n2. personal\n3. máquinas`,
@@ -1174,10 +1192,17 @@ bot.on("message", async (ctx) => {
         );
       }
 
-      await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre);
+      await cdGenerarRequerimiento(sesCD.page, tipoGenerar, elegido.nombre);
       resetSesion(chatId);
       return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
     } catch (e) {
+      if (e.sectores) {
+        const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
+        setSesion(chatId, { fase: "generar_sector", elegido, cdUser, cdPass, tipo: tipoGenerar, sectores: e.sectores });
+        const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
+        if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
+        return ctx.reply(msg, { parse_mode: "HTML" });
+      }
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       console.error("[GENERAR-CMD]", e.message);
@@ -1207,12 +1232,49 @@ bot.on("message", async (ctx) => {
       resetSesion(chatId);
       return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
     } catch (e) {
+      if (e.sectores) {
+        const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
+        setSesion(chatId, { fase: "generar_sector", elegido, cdUser, cdPass, tipo, sectores: e.sectores });
+        const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
+        if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
+        return ctx.reply(msg, { parse_mode: "HTML" });
+      }
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       console.error("[GENERAR-CMD]", e.message);
       const caption = `❌ Error: ${e.message}`;
       if (e.screenshot)
         return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
+      return ctx.reply(caption, { parse_mode: "HTML" });
+    }
+  }
+
+  // ── /generar: sector manual ──
+  if (sesion.fase === "generar_sector" && texto && !texto.startsWith("/")) {
+    const { sectores, elegido, cdUser, cdPass, tipo } = sesion;
+    const n = parseInt(texto.trim());
+    let sectorElegido = null;
+    if (n >= 1 && n <= sectores.length) sectorElegido = sectores[n - 1];
+    else {
+      const lower = texto.toLowerCase();
+      sectorElegido = sectores.find(s => s.text.toLowerCase().includes(lower)) || null;
+    }
+    if (!sectorElegido) {
+      const lineas = sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
+      return ctx.reply(`Escribí un número del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
+    }
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+      if (!sesCD.ok) throw new Error(sesCD.motivo);
+      await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre, sectorElegido.value);
+      resetSesion(chatId);
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      resetSesion(chatId);
+      const caption = `❌ Error: ${e.message}`;
+      if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
       return ctx.reply(caption, { parse_mode: "HTML" });
     }
   }
@@ -1372,7 +1434,7 @@ async function _procesarSiguienteGenerable(ctx, chatId) {
   }
 }
 
-async function _generarItem(ctx, chatId, item, tipo) {
+async function _generarItem(ctx, chatId, item, tipo, sector = null) {
   const sesion = getSesion(chatId);
   const { buffer, cdUser, cdPass, pendientes, indiceActual } = sesion;
   const entidadLabel = item.entidad ? ` (${escapeHtml(item.entidad)})` : "";
@@ -1383,7 +1445,7 @@ async function _generarItem(ctx, chatId, item, tipo) {
     const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
     if (!sesCD.ok) throw new Error(sesCD.motivo);
 
-    await cdGenerarRequerimiento(sesCD.page, tipo, item.tipo);
+    await cdGenerarRequerimiento(sesCD.page, tipo, item.tipo, sector);
     await ctx.reply(`✅ Requerido generado. Subiendo documento…`);
 
     // Re-read reqs and find the newly created one
@@ -1403,6 +1465,13 @@ async function _generarItem(ctx, chatId, item, tipo) {
       await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${entidadLabel}`);
     }
   } catch (e) {
+    if (e.sectores) {
+      const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
+      setSesion(chatId, { ...getSesion(chatId), fase: "trabajar_generando_sector", itemActual: item, tipoActual: tipo, sectores: e.sectores });
+      const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(item.tipo)}</b>"?\n\n${lineas.join("\n")}`;
+      if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
+      return ctx.reply(msg, { parse_mode: "HTML" });
+    }
     const caption = `❌ Error con "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}: ${e.message}`;
     if (e.screenshot) {
       await ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
@@ -1500,28 +1569,55 @@ cron.schedule("0 8 1 * *", async () => {
   console.log("[CRON] Parte mensual automático finalizado");
 });
 
-// Todos los días a las 08:00 — notifica solo si hay vencimientos próximos
-cron.schedule("0 13 * * *", async () => {
-  console.log("[CRON] Check vencimientos automático iniciado");
+// Todos los días a las 13:35 — notifica solo si hay vencimientos próximos
+cron.schedule("35 13 * * *", async () => {
+  const inicio = Date.now();
+  console.log(`[CRON VENC] ▶ Iniciado — ${new Date().toLocaleString("es-AR")}`);
   const clientes = await listarTodosClientes();
+  const total = clientes.length;
+  let procesados = 0, sinCredenciales = 0, conAlertas = 0, errores = 0;
+  console.log(`[CRON VENC] Clientes a evaluar: ${total}`);
+
   for (const cliente of clientes) {
-    if (!cliente.cdUser || !cliente.cdPass) continue;
+    if (!cliente.cdUser || !cliente.cdPass) {
+      sinCredenciales++;
+      console.log(`[CRON VENC] ⏭ ${cliente.nombre || cliente.chatId} — sin credenciales CD`);
+      continue;
+    }
     const chatId = cliente.chatId;
     const diasP = cliente.diasPersonal ?? 10;
     const diasV = cliente.diasVehiculos ?? 10;
+    procesados++;
+    console.log(`[CRON VENC] 🔍 [${procesados}/${total - sinCredenciales}] ${cliente.nombre || chatId} — diasP=${diasP} diasV=${diasV}`);
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
-      if (!sesCD.ok) continue;
+      if (!sesCD.ok) {
+        console.log(`[CRON VENC] ❌ ${cliente.nombre || chatId} — login fallido: ${sesCD.motivo}`);
+        errores++;
+        continue;
+      }
+      console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — sesión OK, consultando vencimientos…`);
       const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV);
-      if (!items.length) continue;
-      for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV)))
+      console.log(`[CRON VENC] 📋 ${cliente.nombre || chatId} — ${items.length} item(s) encontrado(s)`);
+      if (!items.length) {
+        console.log(`[CRON VENC] ✔ ${cliente.nombre || chatId} — sin vencimientos próximos, no se envía alerta`);
+        continue;
+      }
+      conAlertas++;
+      const chunks = [..._chunksVenc(_buildMsgVencimientos(items, diasP, diasV))];
+      console.log(`[CRON VENC] 📨 ${cliente.nombre || chatId} — enviando ${chunks.length} mensaje(s) con alertas`);
+      for (const chunk of chunks)
         await bot.api.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+      console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — alerta enviada`);
     } catch (e) {
       cdInvalidarSesion(chatId);
-      console.error(`[CRON VENC] ${chatId}: ${e.message}`);
+      errores++;
+      console.error(`[CRON VENC] 💥 ${cliente.nombre || chatId}: ${e.message}`);
     }
   }
-  console.log("[CRON] Check vencimientos finalizado");
+
+  const duracion = ((Date.now() - inicio) / 1000).toFixed(1);
+  console.log(`[CRON VENC] ■ Finalizado en ${duracion}s — procesados=${procesados} alertas=${conAlertas} errores=${errores} sinCreds=${sinCredenciales}`);
 });
 
 // ─── Setup y arranque ────────────────────────────────────────────────────────
