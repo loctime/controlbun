@@ -233,7 +233,8 @@ bot.command("vencimientos", async (ctx) => {
 
   const diasP = cliente.diasPersonal ?? 10;
   const diasV = cliente.diasVehiculos ?? 10;
-  await ctx.reply(`🔎 Consultando vencimientos (personal: ${diasP} días, vehículos: ${diasV} días)…`);
+  const diasE = cliente.diasEmpresa ?? 10;
+  await ctx.reply(`🔎 Consultando vencimientos (empresa: ${diasE}d · personal: ${diasP}d · vehículos: ${diasV}d)…`);
 
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
@@ -243,18 +244,18 @@ bot.command("vencimientos", async (ctx) => {
       return ctx.reply(`❌ ${sesCD.motivo}`);
     }
 
-    const { items, screenshots } = await cdLeerVencimientos(sesCD.page, diasP, diasV);
+    const { items, screenshots } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
 
     if (!items.length) {
       await ctx.reply(
-        `✅ <b>Todo OK</b> — sin vencimientos próximos.\n\n<i>Personal: ${diasP} días · Vehículos: ${diasV} días</i>`,
+        `✅ <b>Todo OK</b> — sin vencimientos próximos.\n\n<i>Empresa: ${diasE}d · Personal: ${diasP}d · Vehículos: ${diasV}d</i>`,
         { parse_mode: "HTML" }
       );
       for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
       return;
     }
 
-    for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV)))
+    for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV, diasE)))
       await ctx.reply(chunk, { parse_mode: "HTML" });
     for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
   } catch (e) {
@@ -1486,7 +1487,7 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
 
 // ─── Vencimientos: helpers de formato ────────────────────────────────────────
 
-function _buildMsgVencimientos(items, diasP, diasV) {
+function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
   const fraseDias = (d) => {
     if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 día" : `VENCIDO hace ${n} días`; }
     if (d === 0) return "vence HOY";
@@ -1496,12 +1497,13 @@ function _buildMsgVencimientos(items, diasP, diasV) {
   const ico = (d) => d < 0 ? "🔴" : d <= 3 ? "🟠" : "🟡";
 
   const generales = items.filter(i => i.tipo === "general");
+  const empresa   = items.filter(i => i.tipo === "empresa");
   const personal  = items.filter(i => i.tipo === "personal");
   const vehiculos = items.filter(i => i.tipo === "vehiculo");
 
   const partes = [
     `🔔 <b>Vencimientos próximos</b>`,
-    `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | personal ${diasP}d · vehículos ${diasV}d</i>`,
+    `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d</i>`,
   ];
 
   const bloque = (titulo, lista, sinNombre = false) => {
@@ -1518,6 +1520,7 @@ function _buildMsgVencimientos(items, diasP, diasV) {
   };
 
   bloque("📋 <b>GENERAL (proveedor)</b>", generales, true);
+  bloque("🏢 <b>EMPRESA</b>", empresa);
   bloque("👷 <b>PERSONAL</b>", personal);
   bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
   return partes.join("\n");
@@ -1570,7 +1573,7 @@ cron.schedule("0 8 1 * *", async () => {
 });
 
 // Todos los días a las 13:46 — notifica solo si hay vencimientos próximos
-cron.schedule("46 13 * * *", async () => {
+cron.schedule("30 15 * * *", async () => {
   const inicio = Date.now();
   console.log(`[CRON VENC] ▶ Iniciado — ${new Date().toLocaleString("es-AR")}`);
   const clientes = await listarTodosClientes();
@@ -1587,8 +1590,9 @@ cron.schedule("46 13 * * *", async () => {
     const chatId = cliente.chatId;
     const diasP = cliente.diasPersonal ?? 10;
     const diasV = cliente.diasVehiculos ?? 10;
+    const diasE = cliente.diasEmpresa ?? 10;
     procesados++;
-    console.log(`[CRON VENC] 🔍 [${procesados}/${total - sinCredenciales}] ${cliente.nombre || chatId} — diasP=${diasP} diasV=${diasV}`);
+    console.log(`[CRON VENC] 🔍 [${procesados}/${total - sinCredenciales}] ${cliente.nombre || chatId} — diasE=${diasE} diasP=${diasP} diasV=${diasV}`);
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
       if (!sesCD.ok) {
@@ -1597,14 +1601,14 @@ cron.schedule("46 13 * * *", async () => {
         continue;
       }
       console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — sesión OK, consultando vencimientos…`);
-      const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV);
+      const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
       console.log(`[CRON VENC] 📋 ${cliente.nombre || chatId} — ${items.length} item(s) encontrado(s)`);
       if (!items.length) {
         console.log(`[CRON VENC] ✔ ${cliente.nombre || chatId} — sin vencimientos próximos, no se envía alerta`);
         continue;
       }
       conAlertas++;
-      const chunks = [..._chunksVenc(_buildMsgVencimientos(items, diasP, diasV))];
+      const chunks = [..._chunksVenc(_buildMsgVencimientos(items, diasP, diasV, diasE))];
       console.log(`[CRON VENC] 📨 ${cliente.nombre || chatId} — enviando ${chunks.length} mensaje(s) con alertas`);
       for (const chunk of chunks)
         await bot.api.sendMessage(chatId, chunk, { parse_mode: "HTML" });

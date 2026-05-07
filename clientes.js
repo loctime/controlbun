@@ -18,7 +18,7 @@ export async function cargarCliente(chatId) {
 
 export async function registrarCliente(chatId, nombre) {
   const slug = nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-  const cliente = { chatId: String(chatId), nombre, cdUser: "", cdPass: "", diasPersonal: 7, diasVehiculos: 15 };
+  const cliente = { chatId: String(chatId), nombre, cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10 };
   await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(cliente, null, 2));
   return cliente;
 }
@@ -42,7 +42,7 @@ export async function actualizarCliente(chatId, datos) {
     return actualizado;
   }
   // Si no existe, crear entrada mínima
-  const nuevo = { chatId: String(chatId), nombre: `Usuario ${chatId}`, cdUser: "", cdPass: "", diasPersonal: 7, diasVehiculos: 15, ...datos };
+  const nuevo = { chatId: String(chatId), nombre: `Usuario ${chatId}`, cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10, ...datos };
   await fs.writeFile(path.join(DIR, `cliente-${chatId}.json`), JSON.stringify(nuevo, null, 2));
   return nuevo;
 }

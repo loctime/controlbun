@@ -5,7 +5,8 @@ const BANDEJA_URL = `${CD_URL}/Bandeja.aspx?menu=1`;
 
 let _browser = null;
 async function getBrowser() {
-  if (!_browser) _browser = await chromium.launch({ headless: false, slowMo: 400 });
+  const headless = process.env.BROWSER_HEADLESS !== 'false';
+  if (!_browser) _browser = await chromium.launch(headless ? {} : { headless: false, slowMo: 400 });
   return _browser;
 }
 
@@ -975,19 +976,20 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
   return { ok: true, mensaje: alerta };
 }
 
-// Lee vencimientos próximos de Vencimientos.aspx (Personal + Máquinas + proveedor).
-// diasPersonal y diasVehiculos controlan el umbral por tipo.
-// Devuelve [{ tipo: "personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]
-export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos = 10) {
+// Lee vencimientos próximos de Vencimientos.aspx (Empresa + Personal + Máquinas + proveedor).
+// diasPersonal, diasVehiculos y diasEmpresa controlan el umbral por tipo.
+// Devuelve [{ tipo: "empresa"|"personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]
+export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos = 10, diasEmpresa = 10) {
   await page.goto(`${CD_URL}/Vencimientos.aspx?menu=11`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(2000);
 
   const seleccionarTipo = (texto) => page.evaluate((t) => {
     function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
     const buscado = norm(t);
+    const conocidos = ["personal", "maquinas", "empresa"];
     for (const sel of document.querySelectorAll("select")) {
       const opts = Array.from(sel.options || []);
-      if (!opts.some(o => norm(o.text) === "personal") || !opts.some(o => norm(o.text) === "maquinas")) continue;
+      if (!opts.some(o => conocidos.includes(norm(o.text)))) continue;
       const obj = opts.find(o => norm(o.text) === buscado);
       if (!obj) continue;
       if (sel.value === obj.value) return { ok: true, yaEstaba: true };
@@ -1101,6 +1103,20 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   const ssPersonal = await capturar();
   if (ssPersonal) screenshots.push({ buffer: ssPersonal, nombre: "personal.jpg" });
 
+  // Empresa
+  const selEmp = await seleccionarTipo("empresa");
+  if (selEmp.ok) {
+    if (!selEmp.yaEstaba) await page.waitForTimeout(5000);
+    await clickBuscar();
+    const { items: itemsEmp } = await leerTabla("empresa", diasEmpresa);
+    todosItems.push(...itemsEmp);
+    console.log(`[VENC] Empresa: ${itemsEmp.length} items`);
+    const ssEmp = await capturar();
+    if (ssEmp) screenshots.push({ buffer: ssEmp, nombre: "empresa.jpg" });
+  } else {
+    console.warn("[VENC] No se encontró opción empresa en el dropdown.");
+  }
+
   // Vehículos
   const selMaq = await seleccionarTipo("maquinas");
   if (selMaq.ok) {
@@ -1112,7 +1128,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     const ssMaq = await capturar();
     if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
   } else {
-    console.warn("[VENC] No se encontró dropdown Personal/Máquinas.");
+    console.warn("[VENC] No se encontró opción maquinas en el dropdown.");
   }
 
   return { items: todosItems, screenshots };

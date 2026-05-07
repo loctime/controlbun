@@ -183,13 +183,22 @@ Cuando el sistema identifica un documento (matchea un mapeo aprendido) pero no h
    a. Busca `tipo` guardado en el mapeo JSON
    b. Si no lo tiene → `cdScrapearTipoRequerimiento` abre el modal de CD e itera empresa/personal/maquinas para encontrar en qué categoría aparece el requerido
    c. Si lo encuentra → guarda `tipo` en mapeo + genera; si no → pregunta al usuario (opciones 1/2/3)
-4. `cdGenerarRequerimiento` automatiza el modal: selecciona tipo → selecciona requerido → "Todos" → Generar
+4. `cdGenerarRequerimiento` automatiza el modal: selecciona tipo → selecciona requerido → maneja sector (si aplica) → "Todos" → Generar
 5. Re-lee bandeja para encontrar el req recién creado → sube el PDF → reporta resultado
 6. Pasa al siguiente item o termina
 
+**Dropdown de sectores (sobres empresa):**
+Algunos sobres de tipo empresa muestran un dropdown "Sectores" que es obligatorio.
+`cdGenerarRequerimiento` lo detecta después del wait post-`cmbSobre`:
+- **1 opción**: auto-selecciona silenciosamente
+- **Múltiples opciones sin `sector`**: lanza error con `err.sectores = [{value, text}]`; bot.js pregunta al usuario y reintenta con el valor elegido
+- **`sector` provisto**: busca y selecciona la opción que coincide
+
+Al seleccionar el sector, se intenta llamar `setSectores(sel)` / `setSector(sel)` (patrón de CD) antes del evento `change`, para que los hidden fields del form queden correctamente poblados antes de llamar `GrabarRequerimientos`.
+
 **Funciones:**
 - `cdScrapearTipoRequerimiento(page, nombreRequerido)` en cd.js — descubrimiento de tipo
-- `cdGenerarRequerimiento(page, tipo, nombreRequerido)` en cd.js — automatización del modal
+- `cdGenerarRequerimiento(page, tipo, nombreRequerido, sector = null)` en cd.js — automatización del modal
 - `guardarTipoMapeo(chatId, nombreBase, tipo)` en mapeos.js — persiste el tipo en el JSON
 - `leerTipoMapeo(chatId, nombreBase)` en mapeos.js — lee tipo guardado
 - `_mostrarGenerables`, `_procesarSiguienteGenerable`, `_generarItem` en bot.js — orquestación
@@ -242,8 +251,8 @@ Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pie
 | `trabajar_generables` | Post-subida: mostrando lista de docs sin requerido en CD, esperando selección |
 | `trabajar_generando` | Procesando items a generar en secuencia |
 | `trabajar_generando_tipo` | Esperando que el usuario elija el tipo (empresa/personal/máquinas) para un requerido |
-| `trabajar_generando_sector` | Esperando que el usuario elija el sector del dropdown de CD (aparece en sobres empresa) |
-| `generar_sector` | Igual pero desde el flujo manual /generar |
+| `trabajar_generando_sector` | Esperando que el usuario elija el sector (dropdown de CD, sobres empresa con múltiples sectores) |
+| `generar_sector` | Igual que `trabajar_generando_sector` pero desde el flujo manual `/generar` |
 
 ## AI Provider
 
@@ -295,7 +304,7 @@ WEB_URL=https://mapeos.controldoc.app
 | claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
 | claude.js: matchearPaginasConReqs | ✅ Validación por tipo_detectado, dedup por período, bucket sinRequerido |
 | Flujo Trabajar en bot.js | ✅ Con omitidos por período, aviso de reqs desactualizados, oferta de generación |
-| Generación de requeridos faltantes | ✅ Scraping automático de tipo + automación modal CD + upload post-generación |
+| Generación de requeridos faltantes | ✅ Scraping automático de tipo + selección de sector + automación modal CD + upload post-generación |
 | Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end completa con clientes reales | ⏳ Pendiente |

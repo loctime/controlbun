@@ -236,7 +236,7 @@ async function handle(req, res) {
     // GET /api/mapeos
     if (p === "/api/mapeos" && method === "GET") {
       const mapeos = await leerTodosMapeosPorTipo(chatId);
-      sendJson(res, mapeos.map((m) => ({ nombre: m.nombre, paginas: m.paginas.length })));
+      sendJson(res, mapeos.map((m) => ({ nombre: m.nombre, paginas: m.paginas.length, guardadoEn: m.guardadoEn })));
       return;
     }
 

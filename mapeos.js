@@ -114,6 +114,7 @@ export async function leerTodosMapeosPorTipo(clienteId) {
         resultado.push({
           nombre: data.nombre || nombre,
           paginas: data.paginas,
+          guardadoEn: data.guardadoEn || 0,
         });
       }
     } catch {}

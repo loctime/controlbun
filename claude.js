@@ -290,7 +290,7 @@ TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos p
 
 PASO 1 — IDENTIFICAR ENTIDADES:
 Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla" — cada valor único es una entidad distinta.
-Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.
+Si una página nueva no tiene patente visible → entidad_detectada: vacío. Asumir que es un documento de "empresa".
 
 PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.

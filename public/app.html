@@ -922,7 +922,7 @@ function renderTable(mapeos) {
     const delay = Math.min(i * 30, 300);
     const count = Math.min(m.paginas, 4);
     const thumbs = Array.from({ length: count }, (_, j) => {
-      const src = `/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}`;
+      const src = `/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}?v=${m.guardadoEn || 0}`;
       return `<div class="td-thumb-inner" onclick="openLb('${src}')" title="Pág ${j+1}">
         <img src="${src}" alt="" loading="lazy" onerror="this.parentElement.style.background='var(--bg)'">
       </div>`;
@@ -957,7 +957,7 @@ function card(m, i) {
   const delay = Math.min(i * 45, 280);
   let imgs = '';
   for (let j = 0; j < Math.min(m.paginas, 2); j++) {
-    imgs += `<img class="card-img" src="/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}" alt="Pág ${j+1}" loading="lazy" onclick="openLb(this.src)">`;
+    imgs += `<img class="card-img" src="/api/mapeo/${encodeURIComponent(m.nombre)}/img/${j}?v=${m.guardadoEn || 0}" alt="Pág ${j+1}" loading="lazy" onclick="openLb(this.src)">`;
   }
   if (!imgs) imgs = '<div class="card-no-img">Sin imagen</div>';
 
