@@ -13,7 +13,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `pdf.js` | Renderizado de PDFs a imágenes (`pdfAImagenes` via Playwright + pdfjs CDN). Corte de PDFs (`cortarPaginas` via pdf-lib) |
 | `claude.js` | Multi-provider AI: Claude Haiku / Gemini 2.5 Flash / Ollama. Matching de páginas (`matchearPaginasConReqs`). Provider switcheable en runtime. |
 | `mapeos.js` | Almacenamiento de mapeos por usuario en archivos JSON bajo `mapeos/{chatId}/` |
-| `cd.js` | Automatización de controldocumentario.com con Playwright: login, leer requerimientos, subir archivos |
+| `cd.js` | Automatización de controldocumentario.com con Playwright: login, leer requerimientos, subir archivos, leer vencimientos |
 | `clientes.js` | Gestión de clientes: registro con código, credenciales CD, configuración |
 | `web.js` | Servidor HTTP (puerto 3100) para el panel web. Auth por token de un solo uso, API REST de mapeos. |
 | `tunnel.js` | Arranca cloudflared con el token del túnel. Reconexión automática en 15s si cae. |
@@ -28,6 +28,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `/aprender` | todos | Mapear tipos de documentos con páginas de referencia |
 | `/listo` | todos | Finalizar mapeo en curso |
 | `/pendientes` | todos | Ver requerimientos pendientes en CD |
+| `/vencimientos` | todos | Ver vencimientos próximos (personal + vehículos + proveedor) + screenshots de CD |
 | `/unico` | todos | Subir un PDF directo a un requerimiento sin IA ni corte |
 | `/mapeos` | todos | Ver, reemplazar o eliminar mapeos guardados |
 | `/web` | todos | Obtener link de acceso al panel web (expira en 10 min) |
@@ -148,6 +149,15 @@ Cada archivo en `mapeos/{chatId}/` representa UN tipo de documento (ej: "Recibo 
 - `cdLeerTiposRequerimientos(page)` — para /aprender: lee el dropdown completo de tipos (sin filtrar por período ni estado).
 - `cdLeerRequerimientos(page)` — para /trabajar y /unico: lee filas filtrando "Sobres activos", extrae entidades por columna "Recurso".
 
+### cdLeerVencimientos — lectura de Vencimientos.aspx
+`cdLeerVencimientos(page, diasPersonal, diasVehiculos)` — para /vencimientos:
+- URL: `Vencimientos.aspx?menu=11`
+- Selecciona "personal" en el dropdown (el que tiene Personal + Maquinas), hace Buscar, lee tabla con umbral `diasPersonal`. Lee también la tabla resumen del proveedor (umbral = max de ambos).
+- Selecciona "maquinas", hace Buscar, lee tabla con umbral `diasVehiculos`.
+- Toma screenshot JPEG después de cada búsqueda (fullPage).
+- Devuelve `{ items: [{ tipo, nombre, columna, fecha, diasFaltantes }], screenshots: [{ buffer, nombre }] }`.
+- `diasPersonal` y `diasVehiculos` vienen de `cliente.diasPersonal` / `cliente.diasVehiculos` (defaults 7 y 15 en clientes.js).
+
 ### Playwright para renderizado de PDFs
 pdfjs + node-canvas falla con imágenes embebidas en Node.js (`"Image or Canvas expected"`).
 Solución: Playwright lanza Chromium headless y ejecuta pdfjs v3 desde CDN.
@@ -243,6 +253,7 @@ WEB_URL=https://mapeos.controldoc.app
 | Flujo /mapeos (gestión de mapeos) | ✅ Implementado |
 | Comando /modelo (switch AI en runtime) | ✅ Implementado |
 | Flujo /pendientes (listar reqs pendientes) | ✅ Implementado |
+| Flujo /vencimientos (próximos vencimientos + screenshots) | ✅ Implementado |
 | cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |

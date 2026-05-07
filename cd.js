@@ -557,3 +557,146 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   console.log(`${tag} ✅ Subida completada\n`);
   return { ok: true };
 }
+
+// Lee vencimientos próximos de Vencimientos.aspx (Personal + Máquinas + proveedor).
+// diasPersonal y diasVehiculos controlan el umbral por tipo.
+// Devuelve [{ tipo: "personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]
+export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos = 10) {
+  await page.goto(`${CD_URL}/Vencimientos.aspx?menu=11`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2000);
+
+  const seleccionarTipo = (texto) => page.evaluate((t) => {
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+    const buscado = norm(t);
+    for (const sel of document.querySelectorAll("select")) {
+      const opts = Array.from(sel.options || []);
+      if (!opts.some(o => norm(o.text) === "personal") || !opts.some(o => norm(o.text) === "maquinas")) continue;
+      const obj = opts.find(o => norm(o.text) === buscado);
+      if (!obj) continue;
+      if (sel.value === obj.value) return { ok: true, yaEstaba: true };
+      sel.value = obj.value;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      try { if (typeof sel.onchange === "function") sel.onchange(); } catch {}
+      return { ok: true, yaEstaba: false };
+    }
+    return { ok: false };
+  }, texto);
+
+  const clickBuscar = async () => {
+    const btn = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /buscar|consultar/i }).first();
+    if (await btn.count() > 0 && await btn.isVisible().catch(() => false)) await btn.click();
+    await page.waitForTimeout(5000);
+  };
+
+  const leerTabla = (tipoParam, umbralParam) => page.evaluate(([tipo, umbral]) => {
+    function parseFecha(t) {
+      const m = String(t || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+      if (!m) return null;
+      let y = parseInt(m[3]); if (y < 100) y += 2000;
+      const f = new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
+      return isNaN(f.getTime()) ? null : f;
+    }
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    let mejor = null;
+    for (const t of document.querySelectorAll("table")) {
+      if (t.querySelector("table")) continue;
+      const ths = Array.from(t.querySelectorAll("th")).map(th => (th.textContent || "").trim().toLowerCase());
+      if (!ths.some(h => /^(nombre|descripci[oó]n)$/.test(h))) continue;
+      mejor = t; break;
+    }
+    if (!mejor) return { items: [], totalConFecha: 0 };
+    const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
+    const idxEstado = headers.findIndex(h => /^estado/i.test(h));
+    const idxNombre = headers.findIndex(h => /^(nombre|descripci[oó]n)/i.test(h));
+    const idxPatente = tipo === "vehiculo" ? headers.findIndex(h => /^(patente|dominio|placa|matr[ií]cula)/i.test(h)) : -1;
+    let totalConFecha = 0; const items = [];
+    for (const tr of mejor.querySelectorAll("tr")) {
+      const tds = Array.from(tr.querySelectorAll("td")); if (!tds.length) continue;
+      if (idxEstado >= 0 && tds[idxEstado] && /inhabilit/i.test(tds[idxEstado].textContent)) continue;
+      let nombre = idxNombre >= 0 && tds[idxNombre] ? (tds[idxNombre].textContent || "").trim() : "";
+      if (!nombre) continue;
+      if (idxPatente >= 0 && tds[idxPatente]) { const p = (tds[idxPatente].textContent || "").trim(); if (p) nombre = `${p} — ${nombre}`; }
+      for (let i = 0; i < tds.length; i++) {
+        const f = parseFecha(tds[i].textContent); if (!f) continue;
+        totalConFecha++;
+        const col = (headers[i] || "").trim(); if (/^estado/i.test(col)) continue;
+        const dias = Math.round((f - hoy) / 864e5); if (dias > umbral) continue;
+        items.push({ tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
+      }
+    }
+    return { items, totalConFecha };
+  }, [tipoParam, umbralParam]);
+
+  const leerGeneral = (umbral) => page.evaluate((u) => {
+    function parseFecha(t) {
+      const m = String(t || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+      if (!m) return null;
+      let y = parseInt(m[3]); if (y < 100) y += 2000;
+      const f = new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
+      return isNaN(f.getTime()) ? null : f;
+    }
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    let mejor = null, maxF = 0;
+    for (const t of document.querySelectorAll("table")) {
+      if (t.querySelector("table")) continue;
+      const ths = Array.from(t.querySelectorAll("th")); if (!ths.length) continue;
+      const headerTxts = ths.map(th => (th.textContent || "").trim().toLowerCase());
+      if (headerTxts.some(h => /^(nombre|descripci[oó]n)$/.test(h))) continue;
+      let n = 0; for (const td of t.querySelectorAll("td")) if (parseFecha(td.textContent)) n++;
+      if (n > maxF) { maxF = n; mejor = t; }
+    }
+    if (!mejor) return { items: [], totalConFecha: 0 };
+    const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
+    const items = []; let totalConFecha = 0;
+    for (const tr of mejor.querySelectorAll("tr")) {
+      const tds = Array.from(tr.querySelectorAll("td")); if (!tds.length) continue;
+      for (let i = 0; i < tds.length; i++) {
+        const f = parseFecha(tds[i].textContent); if (!f) continue;
+        totalConFecha++;
+        const col = (headers[i] || "").trim();
+        const dias = Math.round((f - hoy) / 864e5); if (dias > u) continue;
+        items.push({ tipo: "general", nombre: "Proveedor", columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
+      }
+    }
+    return { items, totalConFecha };
+  }, umbral);
+
+  const umbralMax = Math.max(diasPersonal, diasVehiculos);
+  const todosItems = [];
+  const screenshots = [];
+
+  const capturar = () => page.screenshot({ type: "jpeg", quality: 80, fullPage: true }).catch(() => null);
+
+  // Personal
+  const selPers = await seleccionarTipo("personal");
+  if (selPers.ok && !selPers.yaEstaba) await page.waitForTimeout(5000);
+  await clickBuscar();
+  const { items: itemsPers } = await leerTabla("personal", diasPersonal);
+  todosItems.push(...itemsPers);
+  console.log(`[VENC] Personal: ${itemsPers.length} items`);
+
+  // General/proveedor
+  const { items: itemsGen } = await leerGeneral(umbralMax);
+  todosItems.push(...itemsGen);
+  console.log(`[VENC] General: ${itemsGen.length} items`);
+
+  // Screenshot con Personal + resumen proveedor visibles
+  const ssPersonal = await capturar();
+  if (ssPersonal) screenshots.push({ buffer: ssPersonal, nombre: "personal.jpg" });
+
+  // Vehículos
+  const selMaq = await seleccionarTipo("maquinas");
+  if (selMaq.ok) {
+    if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
+    await clickBuscar();
+    const { items: itemsMaq } = await leerTabla("vehiculo", diasVehiculos);
+    todosItems.push(...itemsMaq);
+    console.log(`[VENC] Vehículos: ${itemsMaq.length} items`);
+    const ssMaq = await capturar();
+    if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
+  } else {
+    console.warn("[VENC] No se encontró dropdown Personal/Máquinas.");
+  }
+
+  return { items: todosItems, screenshots };
+}
