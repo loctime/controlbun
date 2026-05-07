@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
-import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente } from "./clientes.js";
+import cron from "node-cron";
+import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto } from "./mapeos.js";
-import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos } from "./cd.js";
+import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual } from "./cd.js";
 import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 import { startWebServer, generarTokenWeb } from "./web.js";
@@ -376,6 +377,30 @@ bot.command("unico", async (ctx) => {
     return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
   setSesion(chatId, { fase: "unico_esperando_pdf" });
   return ctx.reply("📎 Modo único activado. Mandame el PDF a subir.");
+});
+
+bot.command("partemes", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+
+  await ctx.reply("⏳ Grabando parte mensual…");
+  try {
+    const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+    if (!sesCD.ok) {
+      if (sesCD.screenshot)
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      return ctx.reply(`❌ ${sesCD.motivo}`);
+    }
+    const { personal, maquinas } = await cdGrabarParteMensual(sesCD.page);
+    return ctx.reply(_msgParteMensual(personal, maquinas), { parse_mode: "HTML" });
+  } catch (e) {
+    cdInvalidarSesion(chatId);
+    console.error("[PARTEMES]", e.message);
+    return ctx.reply(`❌ Error grabando parte mensual: ${e.message}`);
+  }
 });
 
 bot.command("estado", async (ctx) => {
@@ -1109,6 +1134,42 @@ bot.on("message", async (ctx) => {
   return ctx.reply("No te conozco... ¿Contraseña?");
 });
 
+// ─── Parte mensual: helper de mensaje y cron ─────────────────────────────────
+
+function _msgParteMensual(personal, maquinas) {
+  const total = personal.actualizados + maquinas.actualizados;
+  if (total === 0) return "✅ Parte mensual: ya estaba todo al día (0 cambios).";
+  const lineas = [];
+  if (personal.actualizados > 0) lineas.push(`👷 Personal: ${personal.actualizados} empleado${personal.actualizados !== 1 ? "s" : ""}`);
+  if (maquinas.actualizados > 0) lineas.push(`🚗 Máquinas: ${maquinas.actualizados} vehículo${maquinas.actualizados !== 1 ? "s" : ""}`);
+  return `✅ Parte mensual grabado:\n${lineas.join("\n")}`;
+}
+
+// Día 1 de cada mes a las 08:00
+cron.schedule("0 8 1 * *", async () => {
+  console.log("[CRON] Parte mensual automático iniciado");
+  const clientes = await listarTodosClientes();
+  for (const cliente of clientes) {
+    if (!cliente.cdUser || !cliente.cdPass) continue;
+    const chatId = cliente.chatId;
+    try {
+      await bot.api.sendMessage(chatId, "⏳ Grabando parte mensual automático…");
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) {
+        await bot.api.sendMessage(chatId, `❌ Parte mensual automático — error de login: ${sesCD.motivo}`);
+        continue;
+      }
+      const { personal, maquinas } = await cdGrabarParteMensual(sesCD.page);
+      await bot.api.sendMessage(chatId, _msgParteMensual(personal, maquinas));
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      console.error(`[CRON PARTE] ${chatId}: ${e.message}`);
+      await bot.api.sendMessage(chatId, `❌ Parte mensual automático falló: ${e.message}`).catch(() => {});
+    }
+  }
+  console.log("[CRON] Parte mensual automático finalizado");
+});
+
 // ─── Setup y arranque ────────────────────────────────────────────────────────
 
 bot.catch((err) => console.error("[BOT ERROR]", err.message));
@@ -1120,6 +1181,7 @@ async function setupCommands() {
     { command: "config", description: "Configurar credenciales de controldocumentario.com" },
     { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
     { command: "vencimientos", description: "Ver vencimientos próximos de documentos" },
+    { command: "partemes", description: "Grabar parte mensual (personal y máquinas)" },
     { command: "aprender", description: "Configurar mapeo de documentos" },
     { command: "listo", description: "Finalizar mapeo actual" },
     { command: "unico", description: "Subir un PDF directo a un requerimiento (sin IA)" },

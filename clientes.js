@@ -47,6 +47,18 @@ export async function actualizarCliente(chatId, datos) {
   return nuevo;
 }
 
+export async function listarTodosClientes() {
+  try {
+    const archivos = await fs.readdir(DIR);
+    const clientes = [];
+    for (const archivo of archivos) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      try { clientes.push(JSON.parse(await fs.readFile(path.join(DIR, archivo), "utf8"))); } catch {}
+    }
+    return clientes;
+  } catch { return []; }
+}
+
 export async function consumirPendiente(codigo) {
   const pendientes = await cargarPendientes();
   const entrada = pendientes[codigo];

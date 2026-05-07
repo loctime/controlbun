@@ -16,6 +16,7 @@
     "canvas": "^3.2.3",
     "dotenv": "^17.4.2",
     "grammy": "^1.42.0",
+    "node-cron": "^4.2.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.7.284",
     "playwright": "^1.59.1"

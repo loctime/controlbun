@@ -558,6 +558,119 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
   return { ok: true };
 }
 
+// Graba el parte mensual en ParteMensual.aspx para Personal y Maquinas.
+// Solo tilda la columna del mes actual (evita tocar meses futuros).
+// Devuelve { personal: { actualizados, total }, maquinas: { actualizados, total } }
+export async function cdGrabarParteMensual(page) {
+  const PARTE_URL = `${CD_URL}/ParteMensual.aspx?menu=8`;
+
+  await page.goto(PARTE_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2000);
+
+  const seleccionarTipo = (texto) => page.evaluate((t) => {
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+    const buscado = norm(t);
+    for (const sel of document.querySelectorAll("select")) {
+      const opts = Array.from(sel.options || []);
+      if (!opts.some(o => norm(o.text) === "personal")) continue;
+      const opt = opts.find(o => norm(o.text) === buscado);
+      if (!opt) continue;
+      if (sel.value === opt.value) return { ok: true, yaEstaba: true };
+      sel.value = opt.value;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, yaEstaba: false };
+    }
+    return { ok: false };
+  }, texto);
+
+  const clickBuscar = async () => {
+    const btn = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /buscar/i }).first();
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(3000);
+    }
+  };
+
+  // Tilda solo la columna del mes actual y clickea Grabar si hubo cambios.
+  const tildarMesActualYGrabar = async (tipo) => {
+    const { actualizados, total, debug } = await page.evaluate(() => {
+      function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const meses = [
+        ["ene","enero"], ["feb","febrero"], ["mar","marzo"],   ["abr","abril"],
+        ["may","mayo"],  ["jun","junio"],   ["jul","julio"],   ["ago","agosto"],
+        ["sep","septiembre","set"], ["oct","octubre"], ["nov","noviembre"], ["dic","diciembre"]
+      ];
+      const nombresMes = meses[month];
+      const yearStr = String(year);
+
+      // Buscar la columna del mes actual en la fila de encabezados
+      let colIdx = -1, colName = "";
+      for (const tr of document.querySelectorAll("tr")) {
+        const ths = tr.querySelectorAll("th");
+        if (ths.length < 4) continue;
+        for (let i = 0; i < ths.length; i++) {
+          const txt = norm(ths[i].textContent);
+          if (txt.includes(yearStr) && nombresMes.some(m => txt.includes(m))) {
+            colIdx = i; colName = ths[i].textContent.trim(); break;
+          }
+        }
+        if (colIdx >= 0) break;
+      }
+
+      if (colIdx < 0) return { actualizados: 0, total: 0, debug: "columna mes actual no encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
+
+      let actualizados = 0, total = 0;
+      for (const tr of document.querySelectorAll("tr")) {
+        const tds = tr.querySelectorAll("td");
+        if (tds.length < 4) continue;
+        const td = tds[colIdx];
+        if (!td) continue;
+        const cb = td.querySelector("input[type='checkbox']");
+        if (!cb || cb.disabled) continue;
+        total++;
+        if (!cb.checked) { cb.checked = true; actualizados++; }
+      }
+      return { actualizados, total, debug: `col ${colIdx} "${colName}"` };
+    });
+
+    console.log(`[PARTE] ${tipo}: ${debug} → ${actualizados}/${total}`);
+
+    if (actualizados > 0) {
+      const btnGrabar = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /grabar/i }).first();
+      if (await btnGrabar.isVisible().catch(() => false)) {
+        await btnGrabar.click();
+        await page.waitForTimeout(3000);
+        console.log(`[PARTE] ${tipo}: Grabar parte OK`);
+      } else {
+        console.log(`[PARTE] ${tipo}: botón Grabar no encontrado`);
+      }
+    }
+
+    return { actualizados, total };
+  };
+
+  // Personal (defecto al cargar la página)
+  const selPers = await seleccionarTipo("personal");
+  if (!selPers.yaEstaba) await page.waitForTimeout(3000);
+  await clickBuscar();
+  const personal = await tildarMesActualYGrabar("personal");
+
+  // Maquinas — mismo patrón que cdLeerVencimientos: mismo page, solo cambiar dropdown
+  const selMaq = await seleccionarTipo("maquinas");
+  if (!selMaq.ok) {
+    console.log("[PARTE] Dropdown maquinas no encontrado");
+    return { personal, maquinas: { actualizados: 0, total: 0 } };
+  }
+  if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
+  await clickBuscar();
+  const maquinas = await tildarMesActualYGrabar("maquinas");
+
+  return { personal, maquinas };
+}
+
 // Lee vencimientos próximos de Vencimientos.aspx (Personal + Máquinas + proveedor).
 // diasPersonal y diasVehiculos controlan el umbral por tipo.
 // Devuelve [{ tipo: "personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]
