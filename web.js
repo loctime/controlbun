@@ -8,16 +8,17 @@ import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 import { cdObtenerSesionActiva, cdLeerTiposRequerimientos } from "./cd.js";
 
-async function buscarClientePorCredenciales(cdUser, cdPass) {
+async function buscarClientesPorCredenciales(cdUser, cdPass) {
+  const matches = [];
   try {
     const archivos = await fs.readdir("./clientes");
     for (const archivo of archivos) {
       if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
       const data = JSON.parse(await fs.readFile(path.join("./clientes", archivo), "utf8"));
-      if (data.cdUser === cdUser && data.cdPass === cdPass) return data;
+      if (data.cdUser === cdUser && data.cdPass === cdPass) matches.push(data);
     }
   } catch {}
-  return null;
+  return matches;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -161,7 +162,41 @@ async function handle(req, res) {
       const body = await readBody(req);
       const { cdUser, cdPass } = JSON.parse(body.toString("utf8"));
       if (!cdUser || !cdPass) { sendJson(res, { error: "Faltan credenciales" }, 400); return; }
-      const cliente = await buscarClientePorCredenciales(cdUser.trim(), cdPass);
+      const clientes = await buscarClientesPorCredenciales(cdUser.trim(), cdPass);
+      if (!clientes.length) {
+        recordFailedLogin(ip);
+        sendJson(res, { error: "Credenciales incorrectas" }, 401);
+        return;
+      }
+      clearLoginAttempts(ip);
+      if (clientes.length > 1) {
+        sendJson(res, { ambiguous: true, opciones: clientes.map(c => ({ chatId: String(c.chatId), nombre: c.nombre })) });
+        return;
+      }
+      const cliente = clientes[0];
+      const sid = crypto.randomBytes(32).toString("hex");
+      sessions.set(sid, { chatId: String(cliente.chatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
+      });
+      res.end(JSON.stringify({ ok: true, nombre: cliente.nombre }));
+      return;
+    }
+
+    // POST /api/login/select — elegir workspace cuando hay múltiples con las mismas credenciales
+    if (p === "/api/login/select" && method === "POST") {
+      const ip = getClientIp(req);
+      const rateCheck = checkLoginRateLimit(ip);
+      if (rateCheck.blocked) {
+        sendJson(res, { error: `Demasiados intentos. Intentá de nuevo en ${rateCheck.retryAfter} minutos.` }, 429);
+        return;
+      }
+      const body = await readBody(req);
+      const { cdUser, cdPass, chatId } = JSON.parse(body.toString("utf8"));
+      if (!cdUser || !cdPass || !chatId) { sendJson(res, { error: "Faltan datos" }, 400); return; }
+      const clientes = await buscarClientesPorCredenciales(cdUser.trim(), cdPass);
+      const cliente = clientes.find(c => String(c.chatId) === String(chatId));
       if (!cliente) {
         recordFailedLogin(ip);
         sendJson(res, { error: "Credenciales incorrectas" }, 401);

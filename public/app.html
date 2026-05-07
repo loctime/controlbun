@@ -853,20 +853,61 @@ async function doLogin(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cdUser, cdPass }),
     });
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const data = await r.json().catch(() => ({}));
       renderLogin(data.error || 'Credenciales incorrectas');
       return;
     }
-    const { nombre } = await r.json();
-    S.user = { nombre };
-    showHeader();
-    await loadMapeos();
-    await loadReqsCache().catch(() => {});
-    if (S.reqs.length === 0) refreshReqs().catch(() => {});
+    if (data.ambiguous) {
+      renderWorkspacePicker(data.opciones, cdUser, cdPass);
+      return;
+    }
+    await enterApp(data.nombre);
   } catch {
     renderLogin('Error de conexión. Intentá de nuevo.');
   }
+}
+
+function renderWorkspacePicker(opciones, cdUser, cdPass) {
+  document.getElementById('hUser').style.display = 'none';
+  document.getElementById('app').innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">Control<em>Bun</em></div>
+        <p class="login-sub">Hay varias cuentas con estas credenciales. ¿Cuál es la tuya?</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+          ${opciones.map(o => `
+            <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:10px 14px;font-size:14px"
+              onclick="doSelectWorkspace('${esc(o.chatId)}', ${JSON.stringify(cdUser)}, ${JSON.stringify(cdPass)})">
+              ${esc(o.nombre)}
+            </button>`).join('')}
+        </div>
+        <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:13px" onclick="renderLogin()">Volver</button>
+      </div>
+    </div>`;
+}
+
+async function doSelectWorkspace(chatId, cdUser, cdPass) {
+  try {
+    const r = await fetch('/api/login/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cdUser, cdPass, chatId }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { renderLogin(data.error || 'Error al seleccionar workspace'); return; }
+    await enterApp(data.nombre);
+  } catch {
+    renderLogin('Error de conexión. Intentá de nuevo.');
+  }
+}
+
+async function enterApp(nombre) {
+  S.user = { nombre };
+  showHeader();
+  await loadMapeos();
+  await loadReqsCache().catch(() => {});
+  if (S.reqs.length === 0) refreshReqs().catch(() => {});
 }
 
 const searchSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M10.5 10.5l3 3"/></svg>`;
