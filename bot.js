@@ -245,68 +245,18 @@ bot.command("vencimientos", async (ctx) => {
 
     const { items, screenshots } = await cdLeerVencimientos(sesCD.page, diasP, diasV);
 
-    const generales = items.filter(i => i.tipo === "general");
-    const personal  = items.filter(i => i.tipo === "personal");
-    const vehiculos = items.filter(i => i.tipo === "vehiculo");
-
-    if (!generales.length && !personal.length && !vehiculos.length) {
+    if (!items.length) {
       await ctx.reply(
         `✅ <b>Todo OK</b> — sin vencimientos próximos.\n\n<i>Personal: ${diasP} días · Vehículos: ${diasV} días</i>`,
         { parse_mode: "HTML" }
       );
-      for (const ss of screenshots)
-        await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
+      for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
       return;
     }
 
-    const fraseDias = (d) => {
-      if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 día" : `VENCIDO hace ${n} días`; }
-      if (d === 0) return "vence HOY";
-      if (d === 1) return "vence MAÑANA";
-      return `vence en ${d} días`;
-    };
-    const iconoUrgencia = (d) => d < 0 ? "🔴" : d <= 3 ? "🟠" : "🟡";
-
-    const partes = [
-      `🔔 <b>Vencimientos próximos</b>`,
-      `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | personal ${diasP}d · vehículos ${diasV}d</i>`,
-    ];
-
-    const bloque = (titulo, lista, sinNombre = false) => {
-      partes.push(`\n${titulo}`);
-      if (!lista.length) { partes.push("✅ sin vencimientos"); return; }
-      const ordenada = [...lista].sort((a, b) => a.diasFaltantes - b.diasFaltantes);
-      for (const it of ordenada.slice(0, 60)) {
-        const ico = iconoUrgencia(it.diasFaltantes);
-        partes.push(sinNombre
-          ? `${ico} ${escapeHtml(it.columna)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
-          : `${ico} ${escapeHtml(it.columna)} — ${escapeHtml(it.nombre)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
-        );
-      }
-      if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
-    };
-
-    bloque("📋 <b>GENERAL (proveedor)</b>", generales, true);
-    bloque("👷 <b>PERSONAL</b>", personal);
-    bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
-
-    const mensaje = partes.join("\n");
-    // Dividir si supera el límite de Telegram
-    const lineas = mensaje.split("\n");
-    let chunk = "";
-    for (const ln of lineas) {
-      if (chunk.length + ln.length + 1 > 3800) {
-        await ctx.reply(chunk, { parse_mode: "HTML" });
-        chunk = ln;
-      } else {
-        chunk = chunk ? chunk + "\n" + ln : ln;
-      }
-    }
-    if (chunk) await ctx.reply(chunk, { parse_mode: "HTML" });
-
-    // Screenshots de la página para referencia visual
-    for (const ss of screenshots)
-      await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
+    for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV)))
+      await ctx.reply(chunk, { parse_mode: "HTML" });
+    for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[VENCIMIENTOS]", e.message);
@@ -1134,6 +1084,55 @@ bot.on("message", async (ctx) => {
   return ctx.reply("No te conozco... ¿Contraseña?");
 });
 
+// ─── Vencimientos: helpers de formato ────────────────────────────────────────
+
+function _buildMsgVencimientos(items, diasP, diasV) {
+  const fraseDias = (d) => {
+    if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 día" : `VENCIDO hace ${n} días`; }
+    if (d === 0) return "vence HOY";
+    if (d === 1) return "vence MAÑANA";
+    return `vence en ${d} días`;
+  };
+  const ico = (d) => d < 0 ? "🔴" : d <= 3 ? "🟠" : "🟡";
+
+  const generales = items.filter(i => i.tipo === "general");
+  const personal  = items.filter(i => i.tipo === "personal");
+  const vehiculos = items.filter(i => i.tipo === "vehiculo");
+
+  const partes = [
+    `🔔 <b>Vencimientos próximos</b>`,
+    `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | personal ${diasP}d · vehículos ${diasV}d</i>`,
+  ];
+
+  const bloque = (titulo, lista, sinNombre = false) => {
+    partes.push(`\n${titulo}`);
+    if (!lista.length) { partes.push("✅ sin vencimientos"); return; }
+    const ordenada = [...lista].sort((a, b) => a.diasFaltantes - b.diasFaltantes);
+    for (const it of ordenada.slice(0, 60)) {
+      partes.push(sinNombre
+        ? `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+        : `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} — ${escapeHtml(it.nombre)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+      );
+    }
+    if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
+  };
+
+  bloque("📋 <b>GENERAL (proveedor)</b>", generales, true);
+  bloque("👷 <b>PERSONAL</b>", personal);
+  bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
+  return partes.join("\n");
+}
+
+function* _chunksVenc(msg, max = 3800) {
+  const lineas = msg.split("\n");
+  let chunk = "";
+  for (const ln of lineas) {
+    if (chunk.length + ln.length + 1 > max) { yield chunk; chunk = ln; }
+    else chunk = chunk ? chunk + "\n" + ln : ln;
+  }
+  if (chunk) yield chunk;
+}
+
 // ─── Parte mensual: helper de mensaje y cron ─────────────────────────────────
 
 function _msgParteMensual(personal, maquinas) {
@@ -1168,6 +1167,30 @@ cron.schedule("0 8 1 * *", async () => {
     }
   }
   console.log("[CRON] Parte mensual automático finalizado");
+});
+
+// Todos los días a las 08:00 — notifica solo si hay vencimientos próximos
+cron.schedule("0 13 * * *", async () => {
+  console.log("[CRON] Check vencimientos automático iniciado");
+  const clientes = await listarTodosClientes();
+  for (const cliente of clientes) {
+    if (!cliente.cdUser || !cliente.cdPass) continue;
+    const chatId = cliente.chatId;
+    const diasP = cliente.diasPersonal ?? 10;
+    const diasV = cliente.diasVehiculos ?? 10;
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) continue;
+      const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV);
+      if (!items.length) continue;
+      for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV)))
+        await bot.api.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      console.error(`[CRON VENC] ${chatId}: ${e.message}`);
+    }
+  }
+  console.log("[CRON] Check vencimientos finalizado");
 });
 
 // ─── Setup y arranque ────────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `/listo` | todos | Finalizar mapeo en curso |
 | `/pendientes` | todos | Ver requerimientos pendientes en CD |
 | `/vencimientos` | todos | Ver vencimientos próximos (personal + vehículos + proveedor) + screenshots de CD |
+| `/partemes` | todos | Grabar parte mensual manualmente (personal + máquinas) |
 | `/unico` | todos | Subir un PDF directo a un requerimiento sin IA ni corte |
 | `/mapeos` | todos | Ver, reemplazar o eliminar mapeos guardados |
 | `/web` | todos | Obtener link de acceso al panel web (expira en 10 min) |
@@ -254,6 +255,9 @@ WEB_URL=https://mapeos.controldoc.app
 | Comando /modelo (switch AI en runtime) | ✅ Implementado |
 | Flujo /pendientes (listar reqs pendientes) | ✅ Implementado |
 | Flujo /vencimientos (próximos vencimientos + screenshots) | ✅ Implementado |
+| Flujo /partemes (parte mensual manual) | ✅ Implementado |
+| Cron parte mensual (día 1 de cada mes, 08:00, todos los clientes) | ✅ Implementado |
+| Cron vencimientos diario (13:00, notifica solo si hay items) | ✅ Implementado (cambiar a 08:00 al migrar a VPS) |
 | cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
