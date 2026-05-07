@@ -200,7 +200,7 @@ async function handle(req, res) {
       const nombre = decodeURIComponent(pagesMatch[1]);
       const bruto = await leerMapeoBruto(chatId, nombre);
       if (!bruto) { res.writeHead(404); res.end(); return; }
-      sendJson(res, { paginas: (bruto.paginas || []).map((p, i) => ({ num: i + 1, imagen: p.imagen })) });
+      sendJson(res, { paginas: (bruto.paginas || []).map((pg, i) => ({ num: i + 1, imagen: pg.imagen })) });
       return;
     }
 

@@ -783,8 +783,8 @@ async function init() {
     S.user = await r.json();
     showHeader();
     await loadMapeos();
-    // Load reqs cache silently in background
-    loadReqsCache().catch(() => {});
+    await loadReqsCache().catch(() => {});
+    if (S.reqs.length === 0) refreshReqs().catch(() => {});
   } catch { renderLogin(); }
 }
 
@@ -855,7 +855,8 @@ async function doLogin(e) {
     S.user = { nombre };
     showHeader();
     await loadMapeos();
-    loadReqsCache().catch(() => {});
+    await loadReqsCache().catch(() => {});
+    if (S.reqs.length === 0) refreshReqs().catch(() => {});
   } catch {
     renderLogin('Error de conexión. Intentá de nuevo.');
   }
@@ -1317,6 +1318,7 @@ function renderEditorActions() {
       ${IC.plus} Asignar${selCount > 0 ? ' '+selCount+' página'+(selCount!==1?'s':'') : ' páginas'}
     </button>
     ${noReqs ? `<span style="font-size:12px;color:var(--text-3)">Cargá los reqs →</span>` : ''}
+    <button class="btn btn-ghost btn-sm" onclick="openAddPdf()">${IC.upload} Agregar PDF</button>
     <button class="btn btn-ghost btn-sm" onclick="editorNewPdf()">Cambiar PDF</button>
     <button class="btn btn-ghost btn-sm" onclick="toggleViewMode()" title="${is2col ? 'Vista compacta' : 'Vista grande'}">
       ${is2col ? IC.grid4 : IC.grid2}
@@ -1398,6 +1400,69 @@ async function handleEditorFile(e) {
     left.innerHTML = renderEditorLeft();
     setTimeout(() => bindEditorDrop(), 0);
     toast(`Error procesando PDF: ${err.message}`, 'err');
+  }
+}
+
+function openAddPdf() {
+  openModal(`<div class="modal">
+    <div class="modal-hd">
+      <div>
+        <div class="modal-title">Agregar páginas</div>
+        <div class="modal-sub">Las páginas se añaden a las ${E.paginasData.length} existentes</div>
+      </div>
+      <button class="modal-x" onclick="closeModal()">${IC.x}</button>
+    </div>
+    <div class="modal-body" id="addBody">
+      <div class="drop-zone" id="addDz">
+        <input type="file" accept="application/pdf" id="addFile" onchange="handleAddPdf(event)">
+        <span class="drop-icon">📄</span>
+        <p class="drop-text">Subir otro PDF</p>
+        <p class="drop-hint">Sus páginas se agregarán al final</p>
+      </div>
+    </div>
+  </div>`);
+  setTimeout(() => {
+    const dz = document.getElementById('addDz');
+    if (!dz) return;
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault(); dz.classList.remove('over');
+      const f = e.dataTransfer.files[0];
+      if (f?.type === 'application/pdf') handleAddPdf({ target: { files: [f] } });
+    });
+  }, 0);
+}
+
+async function handleAddPdf(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const body = document.getElementById('addBody');
+  body.innerHTML = pdfLoaderHtml('add');
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  try {
+    pdfLoaderStep('add', 1);
+    const buf = await file.arrayBuffer();
+    pdfLoaderStep('add', 2);
+    const r = await apiFetch('POST', '/api/pdf/render', buf);
+    pdfLoaderStep('add', 3);
+    if (!r.ok) throw new Error(await r.text());
+    const { paginas } = await r.json();
+
+    // Offset page numbers to continue from the current max
+    const offset = E.paginasData.length > 0 ? Math.max(...E.paginasData.map(p => p.num)) : 0;
+    const nuevas = paginas.map(p => ({ ...p, num: p.num + offset }));
+
+    E.paginasData = [...E.paginasData, ...nuevas];
+    nuevas.forEach(p => E.pagSinAsignar.add(p.num));
+
+    closeModal();
+    refreshEditorUI();
+    toast(`${nuevas.length} página${nuevas.length!==1?'s':''} agregada${nuevas.length!==1?'s':''}`);
+  } catch(err) {
+    toast(`Error procesando PDF: ${err.message}`, 'err');
+    closeModal();
   }
 }
 

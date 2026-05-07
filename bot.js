@@ -10,7 +10,7 @@ import { startWebServer, generarTokenWeb } from "./web.js";
 import { startTunnel } from "./tunnel.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
-const ADMIN_ID = process.env.ADMIN_CHAT_ID;
+const ADMIN_IDS = (process.env.ADMIN_CHAT_ID || "").split(",").map(s => s.trim()).filter(Boolean);
 
 // ─── Estado de sesión por usuario (en memoria) ───────────────────────────────
 
@@ -150,7 +150,7 @@ bot.command("web", async (ctx) => {
 });
 
 bot.command("modelo", async (ctx) => {
-  if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
+  if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
   const arg = ctx.match?.trim().toLowerCase();
   if (!arg) {
     return ctx.reply(`🤖 Modelo actual: <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
@@ -167,7 +167,7 @@ bot.command("modelo", async (ctx) => {
 });
 
 bot.command("nuevocliente", async (ctx) => {
-  if (String(ctx.chat.id) !== String(ADMIN_ID)) return;
+  if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
   const match = ctx.match?.trim().match(/^(\S+)\s+(\S+)$/);
   if (!match) return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
   const nombre = match[1].replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -997,7 +997,7 @@ bot.on("message", async (ctx) => {
   }
 
   // ── Admin: mensaje sin reconocer ──
-  if (chatId === String(ADMIN_ID)) return ctx.reply(tonteria());
+  if (ADMIN_IDS.includes(chatId)) return ctx.reply(tonteria());
 
   // ── Registro con código ──
   const cliente = await cargarCliente(chatId);
@@ -1036,10 +1036,10 @@ async function setupCommands() {
     { command: "web", description: "Abrir el panel de mapeos en la web" },
   ];
   await bot.api.setMyCommands(base, { scope: { type: "default" } });
-  if (ADMIN_ID) {
+  for (const id of ADMIN_IDS) {
     await bot.api.setMyCommands(
       [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }, { command: "modelo", description: "Ver/cambiar IA: claude o gemini" }],
-      { scope: { type: "chat", chat_id: Number(ADMIN_ID) } }
+      { scope: { type: "chat", chat_id: Number(id) } }
     );
   }
 }
@@ -1049,4 +1049,4 @@ inicializarPdf().catch(() => {});
 startWebServer();
 startTunnel();
 bot.start();
-console.log(`ControlBun corriendo… Admin: ${ADMIN_ID || "⚠️ NO CONFIGURADO"}`);
+console.log(`ControlBun corriendo… Admins: ${ADMIN_IDS.join(", ") || "⚠️ NO CONFIGURADO"}`);
