@@ -361,16 +361,11 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
 
   const grupos = [];
   const sinAsignarExtra = [];
+  const sinRequeridoItems = [];
   for (const g of parsed.grupos) {
     if (!g.paginas?.length) continue;
 
-    const reqs = (g.reqs || [])
-      .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
-      .filter(Boolean);
-
-    if (!reqs.length) { sinAsignarExtra.push(...g.paginas); continue; }
-
-    // Verificar que las páginas del grupo fueron detectadas como un tipo aprendido
+    // 1. Verificar si el tipo fue reconocido desde el mapeo
     const tiposAprendidosEnGrupo = g.paginas
       .map((p) => tipoDetectadoPorPag.get(p))
       .filter((t) => t && paginasPorTipo.has(t));
@@ -382,7 +377,7 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
       continue;
     }
 
-    // Validar página count según el tipo detectado (primer tipo aprendido del grupo)
+    // 2. Validar página count según el tipo detectado (primer tipo aprendido del grupo)
     const tipoBase = tiposAprendidosEnGrupo[0];
     const esperadas = paginasPorTipo.get(tipoBase) || 1;
     const paginasGrupo = g.paginas.length;
@@ -394,6 +389,18 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     }
     if (paginasGrupo > esperadas) {
       console.log(`[MATCH] Grupo "${g.entidad}" (${tipoBase}): ${paginasGrupo}/${esperadas} págs (exceso, revisar agrupación)`);
+    }
+
+    // 3. Verificar reqs asignados
+    const reqs = (g.reqs || [])
+      .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
+      .filter(Boolean);
+
+    if (!reqs.length) {
+      // Tipo reconocido + páginas completas, pero sin requerido en CD → generable
+      console.log(`[MATCH] Grupo "${g.entidad}" (${tipoBase}): tipo reconocido sin requerido en CD → generable`);
+      sinRequeridoItems.push({ paginas: g.paginas, tipo: tipoBase, entidad: String(g.entidad || "") });
+      continue;
     }
 
     // Por cada (baseType × entidad), quedar solo con el período más reciente
@@ -429,5 +436,8 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     ...sinAsignarExtra,
   ];
   const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
-  return grupos.length ? { grupos, sinAsignar, paginasClasificadas } : null;
+  if (grupos.length || sinRequeridoItems.length) {
+    return { grupos, sinAsignar, sinRequerido: sinRequeridoItems, paginasClasificadas };
+  }
+  return null;
 }

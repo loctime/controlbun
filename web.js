@@ -27,6 +27,41 @@ const tokens = new Map();
 // sessionId → { chatId, expires }
 const sessions = new Map();
 
+// Rate limiting en login: ip → { count, blockedUntil }
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 6;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+function getClientIp(req) {
+  return (
+    req.headers["cf-connecting-ip"] ||
+    req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
+    req.socket.remoteAddress
+  );
+}
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { blocked: false };
+  if (entry.blockedUntil > now) {
+    return { blocked: true, retryAfter: Math.ceil((entry.blockedUntil - now) / 60000) };
+  }
+  if (entry.blockedUntil > 0) loginAttempts.delete(ip);
+  return { blocked: false };
+}
+
+function recordFailedLogin(ip) {
+  const entry = loginAttempts.get(ip) || { count: 0, blockedUntil: 0 };
+  entry.count++;
+  if (entry.count >= MAX_LOGIN_ATTEMPTS) entry.blockedUntil = Date.now() + LOGIN_BLOCK_MS;
+  loginAttempts.set(ip, entry);
+}
+
+function clearLoginAttempts(ip) {
+  loginAttempts.delete(ip);
+}
+
 const PORT = Number(process.env.WEB_PORT) || 3100;
 
 export function generarTokenWeb(chatId) {
@@ -117,11 +152,22 @@ async function handle(req, res) {
 
     // POST /api/login — autenticación por credenciales de CD (no requiere sesión previa)
     if (p === "/api/login" && method === "POST") {
+      const ip = getClientIp(req);
+      const rateCheck = checkLoginRateLimit(ip);
+      if (rateCheck.blocked) {
+        sendJson(res, { error: `Demasiados intentos. Intentá de nuevo en ${rateCheck.retryAfter} minutos.` }, 429);
+        return;
+      }
       const body = await readBody(req);
       const { cdUser, cdPass } = JSON.parse(body.toString("utf8"));
       if (!cdUser || !cdPass) { sendJson(res, { error: "Faltan credenciales" }, 400); return; }
       const cliente = await buscarClientePorCredenciales(cdUser.trim(), cdPass);
-      if (!cliente) { sendJson(res, { error: "Credenciales incorrectas" }, 401); return; }
+      if (!cliente) {
+        recordFailedLogin(ip);
+        sendJson(res, { error: "Credenciales incorrectas" }, 401);
+        return;
+      }
+      clearLoginAttempts(ip);
       const sid = crypto.randomBytes(32).toString("hex");
       sessions.set(sid, { chatId: String(cliente.chatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
       res.writeHead(200, {
@@ -197,7 +243,7 @@ async function handle(req, res) {
     // GET /api/mapeo/:nombre/pages — páginas con base64 (para editor)
     const pagesMatch = p.match(/^\/api\/mapeo\/(.+?)\/pages$/);
     if (pagesMatch && method === "GET") {
-      const nombre = decodeURIComponent(pagesMatch[1]);
+      const nombre = path.basename(decodeURIComponent(pagesMatch[1]));
       const bruto = await leerMapeoBruto(chatId, nombre);
       if (!bruto) { res.writeHead(404); res.end(); return; }
       sendJson(res, { paginas: (bruto.paginas || []).map((pg, i) => ({ num: i + 1, imagen: pg.imagen })) });
@@ -207,7 +253,7 @@ async function handle(req, res) {
     // GET /api/mapeo/:nombre/img/:idx
     const imgMatch = p.match(/^\/api\/mapeo\/(.+?)\/img\/(\d+)$/);
     if (imgMatch && method === "GET") {
-      const nombre = decodeURIComponent(imgMatch[1]);
+      const nombre = path.basename(decodeURIComponent(imgMatch[1]));
       const idx = parseInt(imgMatch[2]);
       const bruto = await leerMapeoBruto(chatId, nombre);
       const img = bruto?.paginas?.[idx]?.imagen;
@@ -220,7 +266,7 @@ async function handle(req, res) {
     // POST /api/mapeo/:nombre/upload
     const uploadMatch = p.match(/^\/api\/mapeo\/(.+?)\/upload$/);
     if (uploadMatch && method === "POST") {
-      const nombre = decodeURIComponent(uploadMatch[1]);
+      const nombre = path.basename(decodeURIComponent(uploadMatch[1]));
       const body = await readBody(req);
       const imagenes = await pdfAImagenes(body);
       sendJson(res, { paginas: imagenes.map((i) => ({ num: i.pagina, imagen: i.base64 })) });
@@ -229,7 +275,7 @@ async function handle(req, res) {
 
     // PATCH /api/mapeo/:nombre  — save new reference pages
     if (method === "PATCH" && p.match(/^\/api\/mapeo\/[^/]+$/)) {
-      const nombre = decodeURIComponent(p.slice("/api/mapeo/".length));
+      const nombre = path.basename(decodeURIComponent(p.slice("/api/mapeo/".length)));
       const body = await readBody(req);
       const { paginas } = JSON.parse(body.toString("utf8"));
       const bruto = await leerMapeoBruto(chatId, nombre);
@@ -244,7 +290,7 @@ async function handle(req, res) {
 
     // DELETE /api/mapeo/:nombre
     if (method === "DELETE" && p.match(/^\/api\/mapeo\/[^/]+$/)) {
-      const nombre = decodeURIComponent(p.slice("/api/mapeo/".length));
+      const nombre = path.basename(decodeURIComponent(p.slice("/api/mapeo/".length)));
       await eliminarMapeo(chatId, nombre);
       sendJson(res, { ok: true });
       return;

@@ -671,6 +671,257 @@ export async function cdGrabarParteMensual(page) {
   return { personal, maquinas };
 }
 
+// Finds the frame that contains the Generar modal (#cmbTipoRecurso).
+// Polls up to ~10s after clicking Generar.
+async function _esperarFrameModal(page) {
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(500);
+    for (const frame of page.frames()) {
+      try {
+        const found = await frame.evaluate(() => !!document.getElementById("cmbTipoRecurso"));
+        if (found) return frame;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+const _cerrarModalGenerar = async (frame) => {
+  try {
+    await frame.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll("a, button, input[type='button']"))
+        .find(el => /volver/i.test((el.textContent || el.value || "").trim()));
+      if (btn) btn.click();
+    });
+  } catch {}
+};
+
+// Scrapes the Generar modal (inside its iframe) to find which category
+// (empresa/personal/maquinas) a requirement belongs to.
+// Returns { tipo, nombreEnModal } or null if not found.
+export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
+  const tag = `[SCRAPE-TIPO] "${nombreRequerido}"`;
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+  const buscado = norm(nombreRequerido);
+
+  await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+
+  const btnGenerar = page.locator('input[type="button"], button').filter({ hasText: /^generar$/i }).last();
+  if (!await btnGenerar.isVisible().catch(() => false)) {
+    console.log(`${tag} Botón Generar no encontrado`);
+    return null;
+  }
+  await btnGenerar.click();
+
+  // The modal opens inside an iframe — poll all frames until #cmbTipoRecurso appears
+  const mf = await _esperarFrameModal(page);
+  if (!mf) {
+    console.log(`${tag} Frame del modal no encontrado`);
+    return null;
+  }
+  console.log(`${tag} Modal frame: ${mf.url().slice(0, 80)}`);
+
+  // Read available tipo options (skip default "*")
+  const tipoOpts = await mf.evaluate(() => {
+    const sel = document.getElementById("cmbTipoRecurso");
+    if (!sel) return [];
+    return Array.from(sel.options)
+      .filter(o => o.value !== "*" && o.value !== "")
+      .map(o => ({ value: o.value, text: (o.text || "").trim() }));
+  });
+
+  if (!tipoOpts.length) {
+    console.log(`${tag} #cmbTipoRecurso sin opciones`);
+    await _cerrarModalGenerar(mf);
+    return null;
+  }
+
+  for (const tipoOpt of tipoOpts) {
+    const tipoNorm = norm(tipoOpt.text);
+
+    // Select tipo and trigger setTipoRecurso() to load cmbSobre via AJAX
+    await mf.evaluate((v) => {
+      const sel = document.getElementById("cmbTipoRecurso");
+      if (!sel) return;
+      sel.value = v;
+      if (typeof setTipoRecurso === "function") setTipoRecurso(sel);
+      else sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }, tipoOpt.value);
+
+    // Wait for cmbSobre to load real options
+    try {
+      await mf.waitForFunction(() => {
+        const sel = document.getElementById("cmbSobre");
+        return sel && sel.options.length > 1;
+      }, { timeout: 8000 });
+    } catch {
+      console.log(`${tag} tipo="${tipoNorm}": cmbSobre no cargó`);
+      continue;
+    }
+
+    const opciones = await mf.evaluate(() => {
+      const sel = document.getElementById("cmbSobre");
+      if (!sel) return [];
+      return Array.from(sel.options).map(o => ({ value: o.value, text: (o.text || "").trim() }));
+    });
+
+    console.log(`${tag} tipo="${tipoNorm}" → ${opciones.length} opciones: ${opciones.slice(0, 4).map(o => o.text).join(", ")}`);
+
+    const match = opciones.find(o => {
+      const t = norm(o.text);
+      return t === buscado || t.includes(buscado) || buscado.includes(t);
+    });
+
+    if (match) {
+      console.log(`${tag} ✅ tipo=${tipoNorm}, nombreEnModal="${match.text}"`);
+      await _cerrarModalGenerar(mf);
+      await page.waitForTimeout(1000);
+      return { tipo: tipoNorm, nombreEnModal: match.text };
+    }
+
+    // Reset before next tipo
+    await mf.evaluate(() => {
+      const sel = document.getElementById("cmbTipoRecurso");
+      if (sel) { sel.value = "*"; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+    });
+    await page.waitForTimeout(500);
+  }
+
+  await _cerrarModalGenerar(mf);
+  await page.waitForTimeout(1000);
+  console.log(`${tag} No encontrado en ningún tipo`);
+  return null;
+}
+
+// Automates the Generar modal (inside its iframe) to create a new requirement.
+// tipo: normalized name ("empresa" | "personal" | "maquinas")
+export async function cdGenerarRequerimiento(page, tipo, nombreRequerido) {
+  const tag = `[GENERAR] "${nombreRequerido}" (${tipo})`;
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+  const buscado = norm(nombreRequerido);
+
+  await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+
+  const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
+
+  const btnGenerar = page.locator('input[type="button"], button').filter({ hasText: /^generar$/i }).last();
+  if (!await btnGenerar.isVisible().catch(() => false)) {
+    const err = new Error("Botón Generar no encontrado en el área de trabajo");
+    err.screenshot = await capturar();
+    throw err;
+  }
+  await btnGenerar.click();
+
+  // Find the modal iframe
+  const mf = await _esperarFrameModal(page);
+  if (!mf) {
+    const err = new Error("Frame del modal Generar no apareció");
+    err.screenshot = await capturar();
+    throw err;
+  }
+  console.log(`${tag} Modal abierto en frame: ${mf.url().slice(0, 80)}`);
+
+  // Find tipo option value
+  const tipoValue = await mf.evaluate((t) => {
+    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+    const sel = document.getElementById("cmbTipoRecurso");
+    if (!sel) return null;
+    const opt = Array.from(sel.options).find(o => norm(o.text) === t);
+    return opt ? opt.value : null;
+  }, tipo);
+
+  if (!tipoValue) {
+    const err = new Error(`Tipo "${tipo}" no encontrado en #cmbTipoRecurso`);
+    err.screenshot = await capturar();
+    throw err;
+  }
+
+  // Select tipo → trigger setTipoRecurso → AJAX loads cmbSobre options
+  await mf.evaluate((v) => {
+    const sel = document.getElementById("cmbTipoRecurso");
+    sel.value = v;
+    if (typeof setTipoRecurso === "function") setTipoRecurso(sel);
+    else sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }, tipoValue);
+
+  await mf.waitForFunction(() => {
+    const sel = document.getElementById("cmbSobre");
+    return sel && sel.options.length > 1;
+  }, { timeout: 10000 });
+  console.log(`${tag} Tipo seleccionado, cmbSobre cargado`);
+
+  // Find the matching option value in cmbSobre
+  const sobreOpt = await mf.evaluate((b) => {
+    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+    const sel = document.getElementById("cmbSobre");
+    if (!sel) return null;
+    const opt = Array.from(sel.options).find(o => {
+      const t = norm(o.text);
+      return t === b || t.includes(b) || b.includes(t);
+    });
+    return opt ? { value: opt.value, text: opt.text } : null;
+  }, buscado);
+
+  if (!sobreOpt) {
+    const err = new Error(`Requerido "${nombreRequerido}" no encontrado en #cmbSobre (tipo: ${tipo})`);
+    err.screenshot = await capturar();
+    throw err;
+  }
+
+  // selectOption fires the DOM change event → setSobre sets hfSobre and loads entity list.
+  // No __doPostBack — the UpdatePanel refresh overwrites hfCodigoEstado0 with empty,
+  // which breaks the SOAP call on the server side.
+  await mf.locator('#cmbSobre').selectOption({ value: sobreOpt.value });
+  console.log(`${tag} Sobre seleccionado: "${sobreOpt.text}"`);
+
+  // Wait for setSobre AJAX to settle (entity list or hidden fields)
+  await page.waitForTimeout(3000);
+
+
+  // Click "Todos" if there are checkboxes
+  if ((snapPost.cbs || 0) > 0) {
+    try {
+      await mf.locator('a').filter({ hasText: /^todos?$/i }).first().click({ timeout: 3000 });
+      console.log(`${tag} "Todos" clickeado`);
+      await page.waitForTimeout(800);
+    } catch {
+      console.log(`${tag} "Todos" no encontrado`);
+    }
+  }
+
+  // Override alert/confirm so they don't block, then call GrabarRequerimientos normally
+  const grabarResult = await mf.evaluate(() => {
+    window.__cdAlert = null;
+    window.alert = (msg) => { window.__cdAlert = msg; };
+    window.confirm = () => true; // auto-confirm "hay pendientes"
+
+    const btn = document.getElementById("btGrabar");
+    if (!btn) return { error: "btGrabar no encontrado" };
+
+    const result = typeof GrabarRequerimientos === "function"
+      ? GrabarRequerimientos(btn)
+      : null;
+
+    return { result, hfTipo: document.getElementById("hfTipoRecurso")?.value, alerta: window.__cdAlert };
+  }).catch(e => ({ error: e.message }));
+
+  const alerta = grabarResult.alerta || null;
+  const exito = grabarResult.result === true;
+  console.log(`${tag} ${exito ? "✅" : "❌"} ${alerta || JSON.stringify(grabarResult)}`);
+
+  if (!exito) {
+    const err = new Error(alerta || "GrabarRequerimientos retornó false");
+    err.screenshot = await capturar();
+    throw err;
+  }
+
+  // Give the page a moment to process realoadAfterGenerate()
+  await page.waitForTimeout(2000);
+  return { ok: true, mensaje: alerta };
+}
+
 // Lee vencimientos próximos de Vencimientos.aspx (Personal + Máquinas + proveedor).
 // diasPersonal y diasVehiculos controlan el umbral por tipo.
 // Devuelve [{ tipo: "personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]

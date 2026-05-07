@@ -61,11 +61,14 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
   ],
   "href": "https://controldocumentario.com/...",
   "entidad": "García Juan",
+  "tipo": "personal",
   "guardadoEn": 1234567890
 }
 ```
 
 Un mapeo por tipo de requerimiento. El nombre del archivo es el nombre del requerimiento (incluyendo sufijo de período `-2026-4`). `baseNombreReq()` en bot.js quita ese sufijo para comparar tipos entre períodos.
+
+El campo `tipo` ("empresa" | "personal" | "maquinas") es opcional. Se guarda la primera vez que se necesita generar el requerido — ya sea scrapeado automáticamente del modal de CD o elegido por el usuario. A partir de ahí se reutiliza sin preguntar.
 
 ## Flujos principales
 
@@ -169,6 +172,28 @@ Claude/Gemini ve TODAS las refs + TODAS las páginas nuevas en una sola llamada.
 **No cambiar a multi-llamada** — el costo sube y no mejora la precisión.
 **No agregar chain-of-thought** — empeora las asignaciones.
 
+### Generación de requeridos faltantes (flujo post-subida)
+
+Cuando el sistema identifica un documento (matchea un mapeo aprendido) pero no hay requerido pendiente en CD para ese tipo, el resultado va al bucket `sinRequerido` en vez de `sinAsignar`.
+
+**Flujo:**
+1. `matchearPaginasConReqs` retorna `{ grupos, sinAsignar, sinRequerido, paginasClasificadas }`
+2. Después del upload normal, si hay items en `sinRequerido` → muestra lista y pregunta si generar
+3. Para cada item a generar:
+   a. Busca `tipo` guardado en el mapeo JSON
+   b. Si no lo tiene → `cdScrapearTipoRequerimiento` abre el modal de CD e itera empresa/personal/maquinas para encontrar en qué categoría aparece el requerido
+   c. Si lo encuentra → guarda `tipo` en mapeo + genera; si no → pregunta al usuario (opciones 1/2/3)
+4. `cdGenerarRequerimiento` automatiza el modal: selecciona tipo → selecciona requerido → "Todos" → Generar
+5. Re-lee bandeja para encontrar el req recién creado → sube el PDF → reporta resultado
+6. Pasa al siguiente item o termina
+
+**Funciones:**
+- `cdScrapearTipoRequerimiento(page, nombreRequerido)` en cd.js — descubrimiento de tipo
+- `cdGenerarRequerimiento(page, tipo, nombreRequerido)` en cd.js — automatización del modal
+- `guardarTipoMapeo(chatId, nombreBase, tipo)` en mapeos.js — persiste el tipo en el JSON
+- `leerTipoMapeo(chatId, nombreBase)` en mapeos.js — lee tipo guardado
+- `_mostrarGenerables`, `_procesarSiguienteGenerable`, `_generarItem` en bot.js — orquestación
+
 ### matchearPaginasConReqs — lógica de validación y deduplicación (claude.js)
 
 **Validación de grupos por tipo detectado (no por nombre de req):**
@@ -214,6 +239,9 @@ Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pie
 | `config_esperando_user` | Esperando email de CD |
 | `config_esperando_pass` | Esperando contraseña de CD |
 | `trabajar_confirmando` | Confirmando subida con IA |
+| `trabajar_generables` | Post-subida: mostrando lista de docs sin requerido en CD, esperando selección |
+| `trabajar_generando` | Procesando items a generar en secuencia |
+| `trabajar_generando_tipo` | Esperando que el usuario elija el tipo (empresa/personal/máquinas) para un requerido |
 
 ## AI Provider
 
@@ -263,8 +291,9 @@ WEB_URL=https://mapeos.controldoc.app
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo (adjuntar + continuar + enviar) | ✅ Probado y funcionando |
 | claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
-| claude.js: matchearPaginasConReqs | ✅ Validación por tipo_detectado, dedup por período |
-| Flujo Trabajar en bot.js | ✅ Con omitidos por período y aviso de reqs desactualizados |
+| claude.js: matchearPaginasConReqs | ✅ Validación por tipo_detectado, dedup por período, bucket sinRequerido |
+| Flujo Trabajar en bot.js | ✅ Con omitidos por período, aviso de reqs desactualizados, oferta de generación |
+| Generación de requeridos faltantes | ✅ Scraping automático de tipo + automación modal CD + upload post-generación |
 | Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end completa con clientes reales | ⏳ Pendiente |

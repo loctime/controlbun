@@ -3,8 +3,8 @@ import { Bot, InputFile } from "grammy";
 import cron from "node-cron";
 import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
-import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto } from "./mapeos.js";
-import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual } from "./cd.js";
+import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
+import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento } from "./cd.js";
 import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 import { startWebServer, generarTokenWeb } from "./web.js";
@@ -319,6 +319,43 @@ bot.command("mapeos", async (ctx) => {
   return mostrarListaMapeos(ctx, chatId);
 });
 
+bot.command("generar", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+
+  await ctx.reply("⏳ Consultando tipos de requerimientos…");
+  try {
+    const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+    if (!sesCD.ok) {
+      if (sesCD.screenshot)
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      return ctx.reply(`❌ ${sesCD.motivo}`);
+    }
+
+    const tipos = await cdLeerTiposRequerimientos(sesCD.page);
+    if (!tipos.length)
+      return ctx.reply("No encontré tipos de requerimientos en CD.");
+
+    // tipos is a flat array of strings (req names)
+    const lista = tipos.map((nombre) => ({ nombre }));
+    setSesion(chatId, { fase: "generar_buscando", lista, filtroActual: null, cdUser: cliente.cdUser, cdPass: cliente.cdPass });
+
+    const lineas = lista.slice(0, 20).map((r, i) => `${i + 1}. ${escapeHtml(r.nombre)}`);
+    if (lista.length > 20) lineas.push(`\n<i>... y ${lista.length - 20} más. Escribí parte del nombre para filtrar.</i>`);
+    return ctx.reply(
+      `📋 <b>${lista.length} tipo${lista.length !== 1 ? "s" : ""} de requerimiento${lista.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}\n\nEscribí el número o parte del nombre para buscar.`,
+      { parse_mode: "HTML" }
+    );
+  } catch (e) {
+    cdInvalidarSesion(chatId);
+    console.error("[GENERAR-CMD]", e.message);
+    return ctx.reply(`❌ Error: ${e.message}`);
+  }
+});
+
 bot.command("unico", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const cliente = await cargarCliente(chatId);
@@ -561,7 +598,7 @@ bot.on("message", async (ctx) => {
       await ctx.reply(`🤖 Clasificando ${imagenes.length} páginas contra ${reqs.length} requerimientos pendientes…`);
       const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs);
 
-      if (!resultado || !resultado.grupos.length)
+      if (!resultado || (!resultado.grupos.length && !resultado.sinRequerido?.length))
         return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
 
       const totalSubidas = resultado.grupos.reduce((s, g) => s + g.reqs.length, 0);
@@ -599,16 +636,35 @@ bot.on("message", async (ctx) => {
       if (resultado.sinAsignar.length)
         lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
 
+      const sinRequerido = resultado.sinRequerido || [];
+      if (sinRequerido.length) {
+        const srStr = sinRequerido.map((item) => {
+          const pags = item.paginas.slice().sort((a, b) => a - b).join(", ");
+          const entidad = item.entidad ? ` (<i>${escapeHtml(item.entidad)}</i>)` : "";
+          return `  ⚡ Págs. ${pags} → <i>${escapeHtml(item.tipo)}</i>${entidad} — sin requerido en CD`;
+        }).join("\n");
+        lineas.push(`\n${srStr}`);
+      }
+
       setSesion(chatId, {
         fase: "trabajar_confirmando",
         buffer,
         gruposSubir: resultado.grupos,
+        sinRequerido,
         cdUser: cliente.cdUser,
         cdPass: cliente.cdPass,
       });
 
+      const encabezado = resultado.grupos.length
+        ? `📋 <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>`
+        : `📋 <b>Sin coincidencias directas con requeridos pendientes.</b>`;
+
+      const pregunta = resultado.grupos.length
+        ? `¿Confirmar y subir todo? (sí / no)`
+        : `¿Procedemos a generar los requeridos faltantes? (sí / no)`;
+
       return ctx.reply(
-        `📋 <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n\n")}\n\n¿Confirmar y subir todo? (sí / no)`,
+        `${encabezado}\n\n${lineas.join("\n\n")}\n\n${pregunta}`,
         { parse_mode: "HTML" }
       );
     } catch (e) {
@@ -940,7 +996,14 @@ bot.on("message", async (ctx) => {
       return ctx.reply("Cancelado.");
     }
 
-    const { buffer, gruposSubir, cdUser, cdPass } = sesion;
+    const { buffer, gruposSubir, sinRequerido = [], cdUser, cdPass } = sesion;
+
+    if (!gruposSubir.length && sinRequerido.length) {
+      // Nothing to upload now, go straight to generables
+      setSesion(chatId, { fase: "trabajar_generables", sinRequerido, pendientes: sinRequerido, indiceActual: 0, buffer, cdUser, cdPass });
+      return _mostrarGenerables(ctx, chatId);
+    }
+
     await ctx.reply("⏳ Subiendo a controldocumentario.com…");
 
     try {
@@ -976,7 +1039,6 @@ bot.on("message", async (ctx) => {
       }
 
       const todosOmitidos = gruposSubir.flatMap((g) => g.omitidos || []);
-      resetSesion(chatId);
       let msgFinal = `Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`;
       if (todosOmitidos.length) {
         const omitStr = todosOmitidos
@@ -984,11 +1046,174 @@ bot.on("message", async (ctx) => {
           .join("\n");
         msgFinal += `\n\n⚠️ Quedaron pendientes (período anterior, subir aparte):\n${omitStr}`;
       }
-      return ctx.reply(msgFinal, { parse_mode: "HTML" });
+
+      if (!sinRequerido.length) {
+        resetSesion(chatId);
+        return ctx.reply(msgFinal, { parse_mode: "HTML" });
+      }
+
+      // Transition to generables flow
+      await ctx.reply(msgFinal, { parse_mode: "HTML" });
+      setSesion(chatId, { fase: "trabajar_generables", sinRequerido, pendientes: sinRequerido, indiceActual: 0, buffer, cdUser, cdPass });
+      return _mostrarGenerables(ctx, chatId);
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       return ctx.reply(`❌ Error durante la subida: ${e.message}`);
+    }
+  }
+
+  // ── Trabajar: seleccionando cuáles generables procesar ──
+  if (sesion.fase === "trabajar_generables" && texto && !texto.startsWith("/")) {
+    if (/^(omitir|no)$/i.test(texto)) {
+      resetSesion(chatId);
+      return ctx.reply("Entendido, se omiten.");
+    }
+
+    const { sinRequerido, buffer, cdUser, cdPass } = sesion;
+
+    let seleccionados;
+    if (/^todo$/i.test(texto)) {
+      seleccionados = sinRequerido;
+    } else {
+      const indices = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n) && n >= 0 && n < sinRequerido.length);
+      if (!indices.length)
+        return ctx.reply(`Escribí números del 1 al ${sinRequerido.length}, <code>todo</code> para todos, o <code>omitir</code>.`, { parse_mode: "HTML" });
+      seleccionados = indices.map((i) => sinRequerido[i]);
+    }
+
+    setSesion(chatId, { fase: "trabajar_generando", pendientes: seleccionados, indiceActual: 0, buffer, cdUser, cdPass });
+    return _procesarSiguienteGenerable(ctx, chatId);
+  }
+
+  // ── Trabajar: el usuario elige el tipo manualmente ──
+  if (sesion.fase === "trabajar_generando_tipo" && texto && !texto.startsWith("/")) {
+    const TIPOS = ["empresa", "personal", "maquinas"];
+    const n = parseInt(texto.trim());
+    let tipo = null;
+    if (n >= 1 && n <= 3) tipo = TIPOS[n - 1];
+    else {
+      const t = texto.toLowerCase().trim();
+      tipo = TIPOS.find((x) => t.includes(x)) || null;
+    }
+    if (!tipo) return ctx.reply("Escribí <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (máquinas).", { parse_mode: "HTML" });
+
+    const { itemActual } = sesion;
+    await guardarTipoMapeo(chatId, itemActual.tipo, tipo);
+    setSesion(chatId, { ...getSesion(chatId), fase: "trabajar_generando" });
+    return _generarItem(ctx, chatId, itemActual, tipo);
+  }
+
+  // ── /generar: usuario busca y elige el tipo a generar ──
+  if (sesion.fase === "generar_buscando" && texto && !texto.startsWith("/")) {
+    if (/^(cancelar|no)$/i.test(texto)) {
+      resetSesion(chatId);
+      return ctx.reply("Cancelado.");
+    }
+
+    const { lista, cdUser, cdPass } = sesion;
+    const listaActual = sesion.filtroActual || lista;
+    const esNumerico = /^\d+$/.test(texto.trim());
+
+    if (!esNumerico) {
+      const filtro = texto.toLowerCase();
+      const filtrados = lista.filter((r) => r.nombre.toLowerCase().includes(filtro));
+      if (!filtrados.length)
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra.`, { parse_mode: "HTML" });
+      setSesion(chatId, { filtroActual: filtrados });
+      const lineas = filtrados.map((r, i) => `${i + 1}. ${escapeHtml(r.nombre)}`);
+      return ctx.reply(
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${lineas.join("\n")}\n\nEscribí el número para generar.`,
+        { parse_mode: "HTML" }
+      );
+    }
+
+    const idx = parseInt(texto.trim()) - 1;
+    if (idx < 0 || idx >= listaActual.length)
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}.`);
+
+    const elegido = listaActual[idx];
+    setSesion(chatId, { fase: "generar_confirmando", elegido, cdUser, cdPass });
+    return ctx.reply(
+      `¿Generar requerimiento <b>${escapeHtml(elegido.nombre)}</b>? (sí / no)`,
+      { parse_mode: "HTML" }
+    );
+  }
+
+  // ── /generar: confirmación ──
+  if (sesion.fase === "generar_confirmando" && texto && !texto.startsWith("/")) {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+      resetSesion(chatId);
+      return ctx.reply("Cancelado.");
+    }
+
+    const { elegido, cdUser, cdPass } = sesion;
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
+
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+      if (!sesCD.ok) throw new Error(sesCD.motivo);
+
+      // Find tipo: check saved mapping first, then scrape
+      let tipo = await leerTipoMapeo(chatId, elegido.nombre);
+
+      if (!tipo) {
+        await ctx.reply(`🔍 Buscando categoría de "<b>${escapeHtml(elegido.nombre)}</b>" en CD…`, { parse_mode: "HTML" });
+        const resultado = await cdScrapearTipoRequerimiento(sesCD.page, elegido.nombre);
+        if (resultado) {
+          tipo = resultado.tipo;
+          await guardarTipoMapeo(chatId, elegido.nombre, tipo);
+        }
+      }
+
+      if (!tipo) {
+        setSesion(chatId, { fase: "generar_tipo_manual", elegido, cdUser, cdPass });
+        return ctx.reply(
+          `No pude determinar la categoría de "<b>${escapeHtml(elegido.nombre)}</b>" automáticamente.\n\n¿A cuál pertenece?\n1. empresa\n2. personal\n3. máquinas`,
+          { parse_mode: "HTML" }
+        );
+      }
+
+      await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre);
+      resetSesion(chatId);
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      resetSesion(chatId);
+      console.error("[GENERAR-CMD]", e.message);
+      const caption = `❌ Error: ${e.message}`;
+      if (e.screenshot)
+        return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
+      return ctx.reply(caption, { parse_mode: "HTML" });
+    }
+  }
+
+  // ── /generar: tipo manual ──
+  if (sesion.fase === "generar_tipo_manual" && texto && !texto.startsWith("/")) {
+    const TIPOS = ["empresa", "personal", "maquinas"];
+    const n = parseInt(texto.trim());
+    let tipo = (n >= 1 && n <= 3) ? TIPOS[n - 1] : TIPOS.find((x) => texto.toLowerCase().includes(x)) || null;
+    if (!tipo)
+      return ctx.reply("Escribí <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (máquinas).", { parse_mode: "HTML" });
+
+    const { elegido, cdUser, cdPass } = sesion;
+    await guardarTipoMapeo(chatId, elegido.nombre, tipo);
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
+
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+      if (!sesCD.ok) throw new Error(sesCD.motivo);
+      await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre);
+      resetSesion(chatId);
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      resetSesion(chatId);
+      console.error("[GENERAR-CMD]", e.message);
+      const caption = `❌ Error: ${e.message}`;
+      if (e.screenshot)
+        return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
+      return ctx.reply(caption, { parse_mode: "HTML" });
     }
   }
 
@@ -1083,6 +1308,112 @@ bot.on("message", async (ctx) => {
   esperandoCodigo.add(chatId);
   return ctx.reply("No te conozco... ¿Contraseña?");
 });
+
+// ─── Generables: helpers de flujo ────────────────────────────────────────────
+
+function _mostrarGenerables(ctx, chatId) {
+  const { sinRequerido } = getSesion(chatId);
+  const itemsStr = sinRequerido.map((item, i) => {
+    const pags = item.paginas.slice().sort((a, b) => a - b).join(", ");
+    const entidad = item.entidad ? ` (<i>${escapeHtml(item.entidad)}</i>)` : "";
+    return `${i + 1}. Págs. ${pags} → "<b>${escapeHtml(item.tipo)}</b>"${entidad}`;
+  }).join("\n");
+
+  return ctx.reply(
+    `⚡ <b>${sinRequerido.length} documento${sinRequerido.length !== 1 ? "s" : ""} identificado${sinRequerido.length !== 1 ? "s" : ""} sin requerido en CD:</b>\n\n${itemsStr}\n\n¿Generamos los requeridos faltantes?\nEscribí los números (ej: <code>1,2</code>), <code>todo</code> para todos, o <code>omitir</code> para saltear.`,
+    { parse_mode: "HTML" }
+  );
+}
+
+async function _procesarSiguienteGenerable(ctx, chatId) {
+  const sesion = getSesion(chatId);
+  const { pendientes, indiceActual, cdUser, cdPass } = sesion;
+
+  if (indiceActual >= pendientes.length) {
+    resetSesion(chatId);
+    return ctx.reply("✅ Procesamiento de requeridos completado.");
+  }
+
+  const item = pendientes[indiceActual];
+  const tipoGuardado = await leerTipoMapeo(chatId, item.tipo);
+
+  if (tipoGuardado) {
+    return _generarItem(ctx, chatId, item, tipoGuardado);
+  }
+
+  // Tipo no conocido → scrape
+  await ctx.reply(`🔍 Buscando categoría de "<b>${escapeHtml(item.tipo)}</b>" en controldocumentario…`, { parse_mode: "HTML" });
+
+  try {
+    const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+    if (!sesCD.ok) {
+      resetSesion(chatId);
+      return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
+    }
+
+    const resultado = await cdScrapearTipoRequerimiento(sesCD.page, item.tipo);
+
+    if (resultado) {
+      await guardarTipoMapeo(chatId, item.tipo, resultado.tipo);
+      return _generarItem(ctx, chatId, item, resultado.tipo);
+    }
+
+    // No encontrado → pedir al usuario
+    setSesion(chatId, { ...sesion, fase: "trabajar_generando_tipo", itemActual: item });
+    return ctx.reply(
+      `No pude determinar la categoría de "<b>${escapeHtml(item.tipo)}</b>" automáticamente.\n\n¿A cuál pertenece?\n1. empresa\n2. personal\n3. máquinas`,
+      { parse_mode: "HTML" }
+    );
+  } catch (e) {
+    console.error("[SCRAPE-TIPO]", e.message);
+    setSesion(chatId, { ...sesion, indiceActual: indiceActual + 1 });
+    await ctx.reply(`⚠️ Error buscando categoría para "<b>${escapeHtml(item.tipo)}</b>": ${e.message}\nSalteando…`, { parse_mode: "HTML" });
+    return _procesarSiguienteGenerable(ctx, chatId);
+  }
+}
+
+async function _generarItem(ctx, chatId, item, tipo) {
+  const sesion = getSesion(chatId);
+  const { buffer, cdUser, cdPass, pendientes, indiceActual } = sesion;
+  const entidadLabel = item.entidad ? ` (${escapeHtml(item.entidad)})` : "";
+
+  await ctx.reply(`⏳ Generando requerido "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}…`, { parse_mode: "HTML" });
+
+  try {
+    const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+    if (!sesCD.ok) throw new Error(sesCD.motivo);
+
+    await cdGenerarRequerimiento(sesCD.page, tipo, item.tipo);
+    await ctx.reply(`✅ Requerido generado. Subiendo documento…`);
+
+    // Re-read reqs and find the newly created one
+    const reqs = await cdLeerRequerimientos(sesCD.page);
+    const baseNorm = (s) => String(s || "").toLowerCase().replace(/-\d{4}-\d+$/i, "").trim();
+    const reqNuevo = reqs.find(
+      (r) => baseNorm(r.nombre) === baseNorm(item.tipo) && (!item.entidad || r.entidad === item.entidad)
+    );
+
+    if (!reqNuevo) {
+      await ctx.reply(`⚠️ Requerido generado pero no lo encontré en CD. Usá /unico para subirlo manualmente.`);
+    } else {
+      const paginasOrdenadas = item.paginas.slice().sort((a, b) => a - b);
+      const bufferItem = await cortarPaginas(buffer, paginasOrdenadas);
+      const nombre = `${reqNuevo.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
+      await cdSubirArchivo(sesCD.page, reqNuevo.href, bufferItem, nombre, reqNuevo.nombre, reqNuevo.entidad);
+      await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${entidadLabel}`);
+    }
+  } catch (e) {
+    const caption = `❌ Error con "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}: ${e.message}`;
+    if (e.screenshot) {
+      await ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
+    } else {
+      await ctx.reply(caption, { parse_mode: "HTML" });
+    }
+  }
+
+  setSesion(chatId, { ...getSesion(chatId), indiceActual: indiceActual + 1 });
+  return _procesarSiguienteGenerable(ctx, chatId);
+}
 
 // ─── Vencimientos: helpers de formato ────────────────────────────────────────
 

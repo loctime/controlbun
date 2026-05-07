@@ -72,6 +72,36 @@ export async function leerMapeoBruto(clienteId, nombre) {
 
 // Lee todos los mapeos en el formato nuevo del bot (por tipo de requerimiento).
 // Devuelve [{ nombre, paginas: [{ num, imagen, texto }] }]
+const _baseNombreMapeo = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
+
+export async function guardarTipoMapeo(clienteId, nombreBase, tipo) {
+  const nombres = await listarMapeos(clienteId);
+  for (const nombre of nombres) {
+    if (_baseNombreMapeo(nombre) === _baseNombreMapeo(nombreBase)) {
+      const filePath = path.join(DIR, String(clienteId), `${nombre}.json`);
+      try {
+        const data = JSON.parse(await fs.readFile(filePath, "utf8"));
+        data.tipo = tipo;
+        await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+      } catch {}
+      return;
+    }
+  }
+}
+
+export async function leerTipoMapeo(clienteId, nombreBase) {
+  const nombres = await listarMapeos(clienteId);
+  for (const nombre of nombres) {
+    if (_baseNombreMapeo(nombre) === _baseNombreMapeo(nombreBase)) {
+      try {
+        const data = JSON.parse(await fs.readFile(path.join(DIR, String(clienteId), `${nombre}.json`), "utf8"));
+        return data.tipo || null;
+      } catch {}
+    }
+  }
+  return null;
+}
+
 export async function leerTodosMapeosPorTipo(clienteId) {
   const nombres = await listarMapeos(clienteId);
   const resultado = [];
