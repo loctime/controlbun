@@ -290,7 +290,7 @@ TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos p
 
 PASO 1 — IDENTIFICAR ENTIDADES:
 Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla" — cada valor único es una entidad distinta.
-Si una página nueva no tiene patente visible → entidad_detectada: vacío. Asumir que es un documento de "empresa".
+Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.
 
 PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
@@ -431,10 +431,60 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs: reqsFinal, omitidos });
   }
 
-  const sinAsignar = [
+  // Páginas sin entidad pero con tipo conocido → intentar asignar por nombre de req
+  const sinAsignarRaw = [
     ...(Array.isArray(parsed.sinAsignar) ? parsed.sinAsignar : []),
     ...sinAsignarExtra,
   ];
+
+  // Agrupar por tipo_detectado para manejar mapeos multi-página
+  const tipoAPages = new Map();
+  for (const pageNum of sinAsignarRaw) {
+    const tipoBase = tipoDetectadoPorPag.get(pageNum);
+    if (!tipoBase || !paginasPorTipo.has(tipoBase)) continue; // tipo desconocido → queda en sinAsignar
+    if (!tipoAPages.has(tipoBase)) tipoAPages.set(tipoBase, []);
+    tipoAPages.get(tipoBase).push(pageNum);
+  }
+
+  const sinAsignar = sinAsignarRaw.filter(p => {
+    const t = tipoDetectadoPorPag.get(p);
+    return !t || !paginasPorTipo.has(t); // solo los que no tienen tipo conocido
+  });
+
+  for (const [tipoBase, paginas] of tipoAPages) {
+    const esperadas = paginasPorTipo.get(tipoBase) || 1;
+    if (paginas.length < esperadas) {
+      console.log(`[MATCH] Empresa tipo "${tipoBase}": ${paginas.length}/${esperadas} págs — incompleto, sinAsignar`);
+      sinAsignar.push(...paginas);
+      continue;
+    }
+
+    // Buscar reqs pendientes cuyo nombre base coincida con el tipo
+    const reqsMatch = reqsPendientes.filter(r => baseNombre(r.nombre) === tipoBase);
+
+    if (!reqsMatch.length) {
+      console.log(`[MATCH] Empresa tipo "${tipoBase}": tipo reconocido sin requerido en CD → generable`);
+      sinRequeridoItems.push({ paginas, tipo: tipoBase, entidad: "empresa" });
+      continue;
+    }
+
+    // Deduplicar por período
+    const reqLatest = new Map();
+    const omitidos = [];
+    for (const r of reqsMatch) {
+      const key = `${baseNombre(r.nombre)}|${String(r.entidad || "").toLowerCase()}`;
+      const parsePer = (n) => { const m = String(n||"").match(/-(\d{4})-(\d+)$/i); return m ? [parseInt(m[1]),parseInt(m[2])] : [0,0]; };
+      const [yr, per] = parsePer(r.nombre);
+      const ex = reqLatest.get(key);
+      if (!ex) { reqLatest.set(key, { req: r, yr, per }); }
+      else if (yr > ex.yr || (yr === ex.yr && per > ex.per)) { omitidos.push(ex.req); reqLatest.set(key, { req: r, yr, per }); }
+      else { omitidos.push(r); }
+    }
+    const reqsFinal = [...reqLatest.values()].map(v => v.req);
+    console.log(`[MATCH] Empresa tipo "${tipoBase}": ${paginas.length} págs → ${reqsFinal.map(r=>r.nombre).join(", ")}`);
+    grupos.push({ entidad: "empresa", paginas, reqs: reqsFinal, omitidos });
+  }
+
   const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
   if (grupos.length || sinRequeridoItems.length) {
     return { grupos, sinAsignar, sinRequerido: sinRequeridoItems, paginasClasificadas };
