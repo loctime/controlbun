@@ -4,7 +4,7 @@ import cron from "node-cron";
 import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
-import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento } from "./cd.js";
+import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento, cdDetectarNombreEmpresa } from "./cd.js";
 import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 import { startWebServer, generarTokenWeb } from "./web.js";
@@ -597,7 +597,7 @@ bot.on("message", async (ctx) => {
         return ctx.reply("No hay requerimientos pendientes en CD por el momento.");
 
       await ctx.reply(`🤖 Clasificando ${imagenes.length} páginas contra ${reqs.length} requerimientos pendientes…`);
-      const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs);
+      const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs, cliente.nombreEmpresa || "");
 
       if (!resultado || (!resultado.grupos.length && !resultado.sinRequerido?.length))
         return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
@@ -704,13 +704,39 @@ bot.on("message", async (ctx) => {
       }
 
       await actualizarCliente(chatId, { cdUser, cdPass });
-      resetSesion(chatId);
-      return ctx.reply("✅ Confirmado, ya entramos a control documentario. Ya podés usar /aprender.");
+
+      // Intentar detectar el nombre de la empresa automáticamente
+      const nombreDetectado = await cdDetectarNombreEmpresa(sesion.page);
+      if (nombreDetectado) {
+        await actualizarCliente(chatId, { nombreEmpresa: nombreDetectado });
+        resetSesion(chatId);
+        return ctx.reply(
+          `✅ Credenciales guardadas.\n\nDetecté que tu empresa es: <b>${escapeHtml(nombreDetectado)}</b>\n\nEste nombre se usará para distinguir documentos de empresa de los personales. Si es incorrecto, mandá el nombre correcto ahora o escribí <code>ok</code> para continuar.`,
+          { parse_mode: "HTML" }
+        );
+        // La sesión se resetea pero si el usuario responde con el nombre correcto no habrá fase activa
+        // — se maneja en el bloque de texto libre abajo
+      }
+
+      setSesion(chatId, { fase: "config_esperando_empresa", cdUser, cdPass });
+      return ctx.reply(
+        `✅ Credenciales guardadas.\n\n¿Cuál es el <b>nombre de tu empresa</b> tal como aparece en los documentos? (ej: "MATESIN, CLAUDIO FABIAN")\n\nEscribí el nombre o <code>omitir</code> si no querés configurarlo ahora.`,
+        { parse_mode: "HTML" }
+      );
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       return ctx.reply(`❌ Error probando credenciales: ${e.message}\n\nUsá /config para intentar de nuevo.`);
     }
+  }
+
+  // ── Config: esperando nombre de empresa ──
+  if (sesion.fase === "config_esperando_empresa" && texto && !texto.startsWith("/")) {
+    if (!/^omitir$/i.test(texto)) {
+      await actualizarCliente(chatId, { nombreEmpresa: texto.trim() });
+    }
+    resetSesion(chatId);
+    return ctx.reply("✅ Listo. Ya podés usar /aprender.");
   }
 
   // ── Aprender: agrupando páginas ──

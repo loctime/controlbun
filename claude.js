@@ -256,7 +256,7 @@ Respondé SOLO JSON válido, sin texto extra:
 // Agrupa páginas por entidad (empleado/vehículo) y devuelve TODOS los reqs que le corresponden a cada grupo.
 // Un mismo grupo puede subirse a múltiples reqs si el usuario así lo configuró en /aprender.
 // Devuelve { grupos: [{ entidad, paginas: [N], reqs: [req1, req2] }], sinAsignar: [N] } o null
-export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes) {
+export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes, nombreEmpresa = "") {
   if (!nuevasPaginas?.length || !mapeos?.length || !reqsPendientes?.length) return null;
 
   const content = [];
@@ -290,7 +290,7 @@ TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos p
 
 PASO 1 — IDENTIFICAR ENTIDADES:
 Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla" — cada valor único es una entidad distinta.
-Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.
+Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.${nombreEmpresa ? `\nNombre de la empresa/proveedor: "${nombreEmpresa}". Si este nombre aparece en la página junto a una PATENTE, usá la patente como entidad (ignorá el nombre de empresa). Si aparece sin patente, dejá entidad_detectada vacío (es un documento de empresa, no personal).` : ""}
 
 PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
@@ -392,9 +392,23 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     }
 
     // 3. Verificar reqs asignados
+    const normEnt = (s) => String(s || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
     const reqs = (g.reqs || [])
       .map((n) => (n >= 1 && n <= reqsPendientes.length ? reqsPendientes[n - 1] : null))
-      .filter(Boolean);
+      .filter(Boolean)
+      // Entidad del req debe coincidir con la entidad del grupo (evita asignar HTC822 a grupo UMM906)
+      .filter(r => {
+        if (!r.entidad || !g.entidad) return true;
+        return normEnt(r.entidad) === normEnt(String(g.entidad));
+      })
+      // Nombre del req debe corresponder al tipo detectado:
+      // req empieza con tipo ("recibos de haberes ram" starts with "recibos de haberes") ✓
+      // tipo empieza con req (req es más general) ✓
+      // "pago del seguro técnico" vs "seguro técnico" → ninguno empieza con el otro → descartado ✓
+      .filter(r => {
+        const reqBase = baseNombre(r.nombre);
+        return reqBase === tipoBase || reqBase.startsWith(tipoBase) || tipoBase.startsWith(reqBase);
+      });
 
     if (!reqs.length) {
       // Tipo reconocido + páginas completas, pero sin requerido en CD → generable
@@ -485,9 +499,31 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     grupos.push({ entidad: "empresa", paginas, reqs: reqsFinal, omitidos });
   }
 
+  // Rescatar sinRequerido donde la entidad del doc no coincide con la de CD (ej: dueño vs patente).
+  // Si existen reqs pendientes que coincidan por tipo de nombre, se asignan directamente.
+  const sinRequeridoFinal = [];
+  const parsePer = (n) => { const m = String(n||"").match(/-(\d{4})-(\d+)$/i); return m ? [parseInt(m[1]),parseInt(m[2])] : [0,0]; };
+  for (const item of sinRequeridoItems) {
+    const reqsMatch = reqsPendientes.filter(r => baseNombre(r.nombre) === item.tipo);
+    if (!reqsMatch.length) { sinRequeridoFinal.push(item); continue; }
+    const reqLatest = new Map();
+    const omitidos = [];
+    for (const r of reqsMatch) {
+      const key = `${baseNombre(r.nombre)}|${String(r.entidad || "").toLowerCase()}`;
+      const [yr, per] = parsePer(r.nombre);
+      const ex = reqLatest.get(key);
+      if (!ex) { reqLatest.set(key, { req: r, yr, per }); }
+      else if (yr > ex.yr || (yr === ex.yr && per > ex.per)) { omitidos.push(ex.req); reqLatest.set(key, { req: r, yr, per }); }
+      else { omitidos.push(r); }
+    }
+    const reqsFinal = [...reqLatest.values()].map(v => v.req);
+    console.log(`[MATCH] Rescue "${item.entidad}" (${item.tipo}): entidad no coincide con CD, asignando a ${reqsFinal.map(r=>`${r.nombre}/${r.entidad}`).join(", ")}`);
+    grupos.push({ entidad: String(item.entidad || ""), paginas: item.paginas, reqs: reqsFinal, omitidos });
+  }
+
   const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
-  if (grupos.length || sinRequeridoItems.length) {
-    return { grupos, sinAsignar, sinRequerido: sinRequeridoItems, paginasClasificadas };
+  if (grupos.length || sinRequeridoFinal.length) {
+    return { grupos, sinAsignar, sinRequerido: sinRequeridoFinal, paginasClasificadas };
   }
   return null;
 }

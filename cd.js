@@ -58,6 +58,52 @@ export async function cdObtenerSesionActiva(chatId, cdUser, cdPass) {
   return { ok: true, page: sesion.page, context: sesion.context };
 }
 
+// Detecta el nombre del proveedor/empresa desde la bandeja de CD.
+// El nombre aparece en la primera columna del área de trabajo.
+// Devuelve string o null si no pudo detectar.
+export async function cdDetectarNombreEmpresa(page) {
+  try {
+    await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1500);
+    await _clickBuscarYEsperar(page);
+
+    const resultado = await page.evaluate(() => {
+      const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+
+      // Buscar en la primera columna de cada fila de tabla en el área de trabajo.
+      // El nombre del proveedor suele estar en la primera celda de una fila de encabezado/datos.
+      const filas = Array.from(document.querySelectorAll("tr"));
+      const candidatos = [];
+      for (const tr of filas) {
+        const celdas = tr.querySelectorAll("td, th");
+        if (!celdas.length) continue;
+        const primeraCelda = norm(celdas[0].textContent);
+        // Descartar celdas vacías, muy largas, o que son claramente headers genéricos
+        if (!primeraCelda || primeraCelda.length < 3 || primeraCelda.length > 80) continue;
+        if (/^\d+$/.test(primeraCelda)) continue; // solo números
+        if (/requerimiento|recurso|estado|fecha|acciones|buscar|filtro|n[uú]mero/i.test(primeraCelda)) continue;
+        candidatos.push(primeraCelda);
+      }
+      // Devolver todos los candidatos para que el llamador pueda elegir o loguear
+      return candidatos;
+    });
+
+    console.log(`[CD] Candidatos nombre empresa (primera columna): ${JSON.stringify(resultado.slice(0, 8))}`);
+
+    // Tomar el primer candidato que tenga pinta de nombre (letras y espacios, no solo tecnicismos)
+    const nombre = resultado.find(c =>
+      /[A-Za-záéíóúÁÉÍÓÚñÑ]{3,}/.test(c) &&
+      !/^\d{4}-\d+$/.test(c) // no es un período
+    );
+
+    if (nombre) console.log(`[CD] Nombre empresa detectado: "${nombre}"`);
+    return nombre || null;
+  } catch (e) {
+    console.log(`[CD] No pudo detectar nombre empresa: ${e.message}`);
+    return null;
+  }
+}
+
 // Invalida la sesión cacheada (usar al cambiar credenciales o en errores graves)
 export function cdInvalidarSesion(chatId) {
   const cached = _sesionesActivas.get(chatId);
