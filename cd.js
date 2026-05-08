@@ -769,10 +769,7 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
 
     console.log(`${tag} tipo="${tipoNorm}" → ${opciones.length} opciones: ${opciones.slice(0, 4).map(o => o.text).join(", ")}`);
 
-    const match = opciones.find(o => {
-      const t = norm(o.text);
-      return t === buscado || t.includes(buscado) || buscado.includes(t);
-    });
+    const match = opciones.find(o => norm(o.text) === buscado);
 
     if (match) {
       console.log(`${tag} ✅ tipo=${tipoNorm}, nombreEnModal="${match.text}"`);
@@ -858,11 +855,8 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
     const sel = document.getElementById("cmbSobre");
     if (!sel) return null;
-    const opt = Array.from(sel.options).find(o => {
-      const t = norm(o.text);
-      return t === b || t.includes(b) || b.includes(t);
-    });
-    return opt ? { value: opt.value, text: opt.text } : null;
+    const exact = Array.from(sel.options).find(o => norm(o.text) === b);
+    return exact ? { value: exact.value, text: exact.text } : null;
   }, buscado);
 
   if (!sobreOpt) {
@@ -938,6 +932,25 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     // No "Todos" link — empresa type with no entity list, proceed directly
   }
 
+  // Verificar checkboxes seleccionados antes de grabar
+  const checkInfo = await mf.evaluate(() => {
+    const checks = Array.from(document.querySelectorAll("input[type=checkbox]:checked"));
+    const btGrabar = document.getElementById("btGrabar");
+    return {
+      checksSeleccionados: checks.length,
+      btGrabarExiste: !!btGrabar,
+      btGrabarVisible: btGrabar ? btGrabar.offsetParent !== null : false,
+      btGrabarDisabled: btGrabar ? btGrabar.disabled : null,
+    };
+  });
+  console.log(`${tag} Antes de grabar: checks=${checkInfo.checksSeleccionados} btGrabar=${checkInfo.btGrabarExiste} visible=${checkInfo.btGrabarVisible} disabled=${checkInfo.btGrabarDisabled}`);
+
+  if (!checkInfo.btGrabarExiste) {
+    const err = new Error("btGrabar no encontrado antes de grabar");
+    err.screenshot = await capturar();
+    throw err;
+  }
+
   // Override alert/confirm so they don't block, then call GrabarRequerimientos normally
   const grabarResult = await mf.evaluate(() => {
     window.__cdAlert = null;
@@ -947,9 +960,11 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     const btn = document.getElementById("btGrabar");
     if (!btn) return { error: "btGrabar no encontrado" };
 
+    console.log("[CD-EVAL] llamando GrabarRequerimientos, btn.id=" + btn.id + " btn.value=" + btn.value);
     const result = typeof GrabarRequerimientos === "function"
       ? GrabarRequerimientos(btn)
       : null;
+    console.log("[CD-EVAL] GrabarRequerimientos retornó:", result, "alerta:", window.__cdAlert);
 
     const hfSector = document.getElementById("hfSector") || document.getElementById("hfSectores");
     return {
@@ -963,6 +978,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
   const alerta = grabarResult.alerta || null;
   const exito = grabarResult.result === true;
   console.log(`${tag} hfTipo=${grabarResult.hfTipo} hfSector=${grabarResult.hfSector}`);
+  console.log(`${tag} grabarResult completo: ${JSON.stringify(grabarResult)}`);
   console.log(`${tag} ${exito ? "✅" : "❌"} ${alerta || JSON.stringify(grabarResult)}`);
 
   if (!exito) {
@@ -971,8 +987,16 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     throw err;
   }
 
-  // Give the page a moment to process realoadAfterGenerate()
-  await page.waitForTimeout(2000);
+  // Esperar a que el postback/AJAX de generación complete (la página principal recarga)
+  console.log(`${tag} esperando recarga post-generación...`);
+  try {
+    await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 });
+    console.log(`${tag} página recargó: ${page.url().slice(0, 80)}`);
+  } catch {
+    console.log(`${tag} sin navegación detectada, esperando 3s extra`);
+    await page.waitForTimeout(3000);
+  }
+  console.log(`${tag} URL final: ${page.url().slice(0, 80)}`);
   return { ok: true, mensaje: alerta };
 }
 

@@ -348,7 +348,7 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     if (m) try { parsed = JSON.parse(m[0]); } catch {}
   }
 
-  if (!parsed?.grupos?.length) return null;
+  if (!parsed?.paginas_clasificadas?.length) return null;
 
   // Normaliza el nombre quitando el sufijo de período "-YYYY-N" para comparar.
   const baseNombre = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();

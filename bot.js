@@ -1452,9 +1452,12 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
     // Re-read reqs and find the newly created one
     const reqs = await cdLeerRequerimientos(sesCD.page);
     const baseNorm = (s) => String(s || "").toLowerCase().replace(/-\d{4}-\d+$/i, "").trim();
+    console.log(`[GENERAR-POST] buscando tipo="${item.tipo}" entidad="${item.entidad}"`);
+    console.log(`[GENERAR-POST] reqs en bandeja: ${reqs.map(r => `"${r.nombre}"/"${r.entidad}"`).join(" | ")}`);
     const reqNuevo = reqs.find(
       (r) => baseNorm(r.nombre) === baseNorm(item.tipo) && (!item.entidad || r.entidad === item.entidad)
     );
+    console.log(`[GENERAR-POST] reqNuevo: ${reqNuevo ? `"${reqNuevo.nombre}"/"${reqNuevo.entidad}"` : "null"}`);
 
     if (!reqNuevo) {
       await ctx.reply(`⚠️ Requerido generado pero no lo encontré en CD. Usá /unico para subirlo manualmente.`);
