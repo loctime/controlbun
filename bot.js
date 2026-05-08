@@ -1449,24 +1449,44 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
     await cdGenerarRequerimiento(sesCD.page, tipo, item.tipo, sector);
     await ctx.reply(`✅ Requerido generado. Subiendo documento…`);
 
-    // Re-read reqs and find the newly created one
-    const reqs = await cdLeerRequerimientos(sesCD.page);
+    // Re-read reqs and find the newly created one — retry once if CD is slow to reflect it
     const baseNorm = (s) => String(s || "").toLowerCase().replace(/-\d{4}-\d+$/i, "").trim();
+    const normEnt = (s) => String(s || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
+    const porNombreYEntidad = (lista) => lista.filter(
+      (r) => baseNorm(r.nombre) === baseNorm(item.tipo) && normEnt(r.entidad) === normEnt(item.entidad)
+    );
+    const porNombreSolo = (lista) => lista.filter(
+      (r) => baseNorm(r.nombre) === baseNorm(item.tipo)
+    );
+
+    let reqs = await cdLeerRequerimientos(sesCD.page);
     console.log(`[GENERAR-POST] buscando tipo="${item.tipo}" entidad="${item.entidad}"`);
     console.log(`[GENERAR-POST] reqs en bandeja: ${reqs.map(r => `"${r.nombre}"/"${r.entidad}"`).join(" | ")}`);
-    const reqNuevo = reqs.find(
-      (r) => baseNorm(r.nombre) === baseNorm(item.tipo) && (!item.entidad || r.entidad === item.entidad)
-    );
-    console.log(`[GENERAR-POST] reqNuevo: ${reqNuevo ? `"${reqNuevo.nombre}"/"${reqNuevo.entidad}"` : "null"}`);
+    let reqsNuevos = item.entidad ? porNombreYEntidad(reqs) : porNombreSolo(reqs);
+    if (!reqsNuevos.length) {
+      // La entidad en el doc (nombre de persona) puede no coincidir con la de CD (ej: patente).
+      // Buscamos solo por nombre — esto aplica cuando generamos con "Todos" (múltiples entidades).
+      reqsNuevos = porNombreSolo(reqs);
+    }
+    if (!reqsNuevos.length) {
+      console.log(`[GENERAR-POST] no encontrado, esperando 5s y reintentando...`);
+      await new Promise(r => setTimeout(r, 5000));
+      reqs = await cdLeerRequerimientos(sesCD.page);
+      console.log(`[GENERAR-POST] reqs (reintento): ${reqs.map(r => `"${r.nombre}"/"${r.entidad}"`).join(" | ")}`);
+      reqsNuevos = porNombreSolo(reqs);
+    }
+    console.log(`[GENERAR-POST] reqsNuevos: ${reqsNuevos.map(r => `"${r.nombre}"/"${r.entidad}"`).join(" | ") || "ninguno"}`);
 
-    if (!reqNuevo) {
+    if (!reqsNuevos.length) {
       await ctx.reply(`⚠️ Requerido generado pero no lo encontré en CD. Usá /unico para subirlo manualmente.`);
     } else {
       const paginasOrdenadas = item.paginas.slice().sort((a, b) => a - b);
       const bufferItem = await cortarPaginas(buffer, paginasOrdenadas);
-      const nombre = `${reqNuevo.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
-      await cdSubirArchivo(sesCD.page, reqNuevo.href, bufferItem, nombre, reqNuevo.nombre, reqNuevo.entidad);
-      await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${entidadLabel}`);
+      for (const reqNuevo of reqsNuevos) {
+        const nombre = `${reqNuevo.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
+        await cdSubirArchivo(sesCD.page, reqNuevo.href, bufferItem, nombre, reqNuevo.nombre, reqNuevo.entidad);
+        await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${reqNuevo.entidad ? ` (<i>${escapeHtml(reqNuevo.entidad)}</i>)` : ""}`, { parse_mode: "HTML" });
+      }
     }
   } catch (e) {
     if (e.sectores) {
