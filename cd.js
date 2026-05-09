@@ -162,6 +162,30 @@ export async function cdLogin(page, user, pass) {
   }
 }
 
+// Verifica si un req quedó en Borrador tras la subida.
+// Asume que page ya está en Bandeja.aspx. Refresca con Buscar.
+// Devuelve true si fue enviado (no Borrador), false si sigue en borrador.
+async function _verificarNoBorrador(page, reqNombre, reqEntidad) {
+  await _clickBuscarYEsperar(page);
+  return page.evaluate(([nombre, entidad]) => {
+    const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const nNom = norm(nombre);
+    const nEnt = entidad ? norm(entidad) : null;
+    for (const tr of document.querySelectorAll("tr")) {
+      const link = tr.querySelector("a");
+      if (!link) continue;
+      const linkText = norm(link.textContent);
+      if (!linkText.includes(nNom)) continue;
+      if (nEnt) {
+        const rowText = norm(tr.textContent);
+        if (!rowText.includes(nEnt)) continue;
+      }
+      return !linkText.includes("borrador");
+    }
+    return true; // fila no encontrada → req enviado y quitado de pendientes
+  }, [reqNombre, reqEntidad]);
+}
+
 // Hace click en Buscar y espera que aparezcan filas en la tabla.
 // Si tras la espera no hay filas, reintenta el click una vez más.
 async function _clickBuscarYEsperar(page) {
@@ -419,8 +443,8 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
 
 // Sube un archivo PDF a un requerimiento específico.
 // reqNombre y reqEntidad se usan como fallback si href está vacío (CD usa JS navigation).
-export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNombre = "", reqEntidad = "") {
-  const tag = `[SUBIR] "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""}`;
+export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNombre = "", reqEntidad = "", _reintento = 0) {
+  const tag = `[SUBIR] "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""}${_reintento > 0 ? ` [reintento ${_reintento}]` : ""}`;
   console.log(`\n${tag} ── inicio`);
   console.log(`${tag} Archivo: ${nombreArchivo} (${(bufferPdf.length / 1024).toFixed(1)} KB)`);
 
@@ -601,6 +625,26 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
 
   console.log(`${tag} Esperando 4s para que el servidor procese...`);
   await page.waitForTimeout(4000);
+
+  // Si no hubo confirmación de upload, verificar que el req no quedó en Borrador
+  if (!uploadConfirmado && reqNombre) {
+    console.log(`${tag} Upload sin confirmar — verificando Borrador en bandeja...`);
+    await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1500);
+    const fueEnviado = await _verificarNoBorrador(page, reqNombre, reqEntidad);
+    if (!fueEnviado) {
+      if (_reintento < 1) {
+        console.log(`${tag} ⚠️ Req en Borrador — reintentando (intento 2/2)...`);
+        return cdSubirArchivo(page, "", bufferPdf, nombreArchivo, reqNombre, reqEntidad, _reintento + 1);
+      }
+      const err = new Error(`Quedó en Borrador tras 2 intentos.`);
+      err.borrador = true;
+      err.screenshot = await capturar();
+      throw err;
+    }
+    console.log(`${tag} ✅ Verificado: fue enviado correctamente (no Borrador)`);
+  }
+
   console.log(`${tag} ✅ Subida completada\n`);
   return { ok: true };
 }
@@ -630,7 +674,17 @@ export async function cdGrabarParteMensual(page) {
     return { ok: false };
   }, texto);
 
+  // Activa "Sólo sin confirmar" si no está marcado y hace Buscar
   const clickBuscar = async () => {
+    await page.evaluate(() => {
+      for (const cb of document.querySelectorAll("input[type='checkbox']")) {
+        const label = (cb.labels?.[0]?.textContent || cb.title || cb.id || "").toLowerCase();
+        if (label.includes("sin confirmar") || label.includes("sinconfirmar")) {
+          if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event("change", { bubbles: true })); }
+          break;
+        }
+      }
+    });
     const btn = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /buscar/i }).first();
     if (await btn.isVisible().catch(() => false)) {
       await btn.click();
@@ -638,71 +692,65 @@ export async function cdGrabarParteMensual(page) {
     }
   };
 
-  // Tilda solo la columna del mes actual y clickea Grabar si hubo cambios.
+  const estadoCheckboxes = () => page.evaluate(() => {
+    const cbs = Array.from(document.querySelectorAll("td input[type='checkbox']"));
+    return {
+      total: cbs.length,
+      habilitados: cbs.filter(c => !c.disabled).length,
+      sinMarcar: cbs.filter(c => !c.disabled && !c.checked).length,
+      deshabilitados: cbs.filter(c => c.disabled).length,
+    };
+  });
+
+  // Buscar → tildar → Grabar. Repite hasta que no queden checkboxes sin marcar tras el Buscar.
   const tildarMesActualYGrabar = async (tipo) => {
-    const { actualizados, total, debug } = await page.evaluate(() => {
-      function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth();
-      const meses = [
-        ["ene","enero"], ["feb","febrero"], ["mar","marzo"],   ["abr","abril"],
-        ["may","mayo"],  ["jun","junio"],   ["jul","julio"],   ["ago","agosto"],
-        ["sep","septiembre","set"], ["oct","octubre"], ["nov","noviembre"], ["dic","diciembre"]
-      ];
-      const nombresMes = meses[month];
-      const yearStr = String(year);
+    let totalActualizados = 0;
 
-      // Buscar la columna del mes actual en la fila de encabezados
-      let colIdx = -1, colName = "";
-      for (const tr of document.querySelectorAll("tr")) {
-        const ths = tr.querySelectorAll("th");
-        if (ths.length < 4) continue;
-        for (let i = 0; i < ths.length; i++) {
-          const txt = norm(ths[i].textContent);
-          if (txt.includes(yearStr) && nombresMes.some(m => txt.includes(m))) {
-            colIdx = i; colName = ths[i].textContent.trim(); break;
-          }
+    for (let intento = 1; intento <= 5; intento++) {
+      // Siempre buscar al inicio de cada intento (la primera vez y tras cada postback)
+      await clickBuscar();
+
+      const estado = await estadoCheckboxes();
+      console.log(`[PARTE] ${tipo} intento ${intento}: total=${estado.total} habilitados=${estado.habilitados} sinMarcar=${estado.sinMarcar} deshabilitados=${estado.deshabilitados}`);
+
+      if (estado.sinMarcar === 0) {
+        console.log(`[PARTE] ${tipo}: sin pendientes → OK`);
+        break;
+      }
+
+      const actualizados = await page.evaluate(() => {
+        let n = 0;
+        for (const cb of document.querySelectorAll("td input[type='checkbox']")) {
+          if (!cb.disabled && !cb.checked) { cb.checked = true; n++; }
         }
-        if (colIdx >= 0) break;
-      }
+        return n;
+      });
+      totalActualizados += actualizados;
+      console.log(`[PARTE] ${tipo}: tildados ${actualizados}`);
 
-      if (colIdx < 0) return { actualizados: 0, total: 0, debug: "columna mes actual no encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
+      const btnGrabar = page.locator("#ctl00_ContentPlaceHolderMain_btGrabar");
+      const btnVisible = await btnGrabar.isVisible().catch(() => false);
+      console.log(`[PARTE] ${tipo}: botón Grabar visible=${btnVisible}`);
+      if (!btnVisible) { console.log(`[PARTE] ${tipo}: botón no encontrado, abortando`); break; }
 
-      let actualizados = 0, total = 0;
-      for (const tr of document.querySelectorAll("tr")) {
-        const tds = tr.querySelectorAll("td");
-        if (tds.length < 4) continue;
-        const td = tds[colIdx];
-        if (!td) continue;
-        const cb = td.querySelector("input[type='checkbox']");
-        if (!cb || cb.disabled) continue;
-        total++;
-        if (!cb.checked) { cb.checked = true; actualizados++; }
-      }
-      return { actualizados, total, debug: `col ${colIdx} "${colName}"` };
-    });
-
-    console.log(`[PARTE] ${tipo}: ${debug} → ${actualizados}/${total}`);
-
-    if (actualizados > 0) {
-      const btnGrabar = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /grabar/i }).first();
-      if (await btnGrabar.isVisible().catch(() => false)) {
-        await btnGrabar.click();
-        await page.waitForTimeout(3000);
-        console.log(`[PARTE] ${tipo}: Grabar parte OK`);
-      } else {
-        console.log(`[PARTE] ${tipo}: botón Grabar no encontrado`);
-      }
+      await page.evaluate(() => {
+        window.confirmaParte = function() { __doPostBack("ctl00$ContentPlaceHolderMain$btGrabar", ""); };
+      });
+      console.log(`[PARTE] ${tipo}: click Grabar…`);
+      await Promise.all([
+        page.waitForLoadState("domcontentloaded").catch(() => {}),
+        btnGrabar.click(),
+      ]);
+      await page.waitForTimeout(3000);
+      console.log(`[PARTE] ${tipo}: post-grabar url=${page.url()}`);
     }
 
-    return { actualizados, total };
+    return { actualizados: totalActualizados, total: 0 };
   };
 
   // Personal (defecto al cargar la página)
   const selPers = await seleccionarTipo("personal");
   if (!selPers.yaEstaba) await page.waitForTimeout(3000);
-  await clickBuscar();
   const personal = await tildarMesActualYGrabar("personal");
 
   // Maquinas — mismo patrón que cdLeerVencimientos: mismo page, solo cambiar dropdown
@@ -712,7 +760,6 @@ export async function cdGrabarParteMensual(page) {
     return { personal, maquinas: { actualizados: 0, total: 0 } };
   }
   if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
-  await clickBuscar();
   const maquinas = await tildarMesActualYGrabar("maquinas");
 
   return { personal, maquinas };

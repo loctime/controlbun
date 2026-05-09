@@ -24,7 +24,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 
 | Comando | Acceso | Descripción |
 |---|---|---|
-| `/config` | todos | Configurar credenciales de CD (prueba el login antes de guardar) |
+| `/config` | todos | Configurar credenciales de CD + detecta nombre de empresa automáticamente |
 | `/aprender` | todos | Mapear tipos de documentos con páginas de referencia |
 | `/listo` | todos | Finalizar mapeo en curso |
 | `/pendientes` | todos | Ver requerimientos pendientes en CD |
@@ -47,9 +47,12 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
   "cdUser": "usuario@empresa.com",
   "cdPass": "contraseña",
   "diasPersonal": 7,
-  "diasVehiculos": 15
+  "diasVehiculos": 15,
+  "nombreEmpresa": "MATESIN CLAUDIO FABIAN"
 }
 ```
+
+`nombreEmpresa` se detecta automáticamente al hacer `/config` leyendo la primera columna del área de trabajo de CD (`cdDetectarNombreEmpresa`). Si la detección falla, el bot pregunta al usuario. Se usa en el prompt de IA para que no confunda el nombre del dueño con empleados, y para que priorice la patente como entidad en documentos de vehículos.
 
 ### Mapeo (`mapeos/{chatId}/{nombre_requerimiento}.json`)
 ```json
@@ -69,6 +72,8 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 Un mapeo por tipo de requerimiento. El nombre del archivo es el nombre del requerimiento (incluyendo sufijo de período `-2026-4`). `baseNombreReq()` en bot.js quita ese sufijo para comparar tipos entre períodos.
 
 El campo `tipo` ("empresa" | "personal" | "maquinas") es opcional. Se guarda la primera vez que se necesita generar el requerido — ya sea scrapeado automáticamente del modal de CD o elegido por el usuario. A partir de ahí se reutiliza sin preguntar.
+
+El campo `guardadoEn` (timestamp Unix ms) se usa como cache-buster en las URLs de imágenes del panel web (`?v=${guardadoEn}`), para evitar que el browser muestre imágenes viejas después de eliminar y recrear un mapeo.
 
 ## Flujos principales
 
@@ -101,6 +106,15 @@ Todos los mensajes del flujo /aprender incluyen recordatorio `/listo para finali
    - `cancelar` → vuelve a la lista
 3. Después de eliminar o reemplazar, **vuelve a mostrar la lista** (no cierra el flujo).
 
+### /config — Configurar credenciales
+1. Pide email de CD
+2. Pide contraseña
+3. Prueba el login; si falla, avisa y termina
+4. Guarda credenciales
+5. Intenta auto-detectar nombre de empresa (`cdDetectarNombreEmpresa`) leyendo la primera columna del área de trabajo en Bandeja.aspx
+   - Si detecta → guarda en `nombreEmpresa` y muestra al usuario para confirmar/corregir
+   - Si no detecta → pregunta al usuario (`config_esperando_empresa`); puede escribir el nombre o `omitir`
+
 ### /web — Panel web de mapeos
 El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin pasar por Telegram.
 
@@ -118,6 +132,7 @@ El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin 
 **Operaciones disponibles:** zoom (lightbox), **eliminar** (con confirmación), **reemplazar** (subir PDF → seleccionar páginas)
 - Múltiples usuarios pueden usar el panel en simultáneo — cada sesión está aislada por `chatId`
 - Si se reinicia el bot, las sesiones web activas se invalidan (están en memoria) → el usuario loguea de nuevo
+- Las imágenes usan `?v=${guardadoEn}` para evitar cache del browser tras eliminar/recrear mapeos
 
 ### /modelo — Cambiar AI (admin)
 - `/modelo` → muestra provider activo
@@ -181,10 +196,14 @@ Cuando el sistema identifica un documento (matchea un mapeo aprendido) pero no h
 2. Después del upload normal, si hay items en `sinRequerido` → muestra lista y pregunta si generar
 3. Para cada item a generar:
    a. Busca `tipo` guardado en el mapeo JSON
-   b. Si no lo tiene → `cdScrapearTipoRequerimiento` abre el modal de CD e itera empresa/personal/maquinas para encontrar en qué categoría aparece el requerido
+   b. Si no lo tiene → `cdScrapearTipoRequerimiento` abre el modal de CD e itera empresa/personal/maquinas para encontrar en qué categoría aparece el requerido (matching exacto por nombre)
    c. Si lo encuentra → guarda `tipo` en mapeo + genera; si no → pregunta al usuario (opciones 1/2/3)
-4. `cdGenerarRequerimiento` automatiza el modal: selecciona tipo → selecciona requerido → maneja sector (si aplica) → "Todos" → Generar
-5. Re-lee bandeja para encontrar el req recién creado → sube el PDF → reporta resultado
+4. `cdGenerarRequerimiento` automatiza el modal: selecciona tipo → selecciona requerido (matching exacto) → maneja sector (si aplica) → "Todos" → Generar
+5. Re-lee bandeja para encontrar el req recién creado:
+   - Primero busca por tipo + entidad (normalizada)
+   - Si no encuentra, busca por tipo solo (cubre caso patente vs nombre de persona)
+   - Si no aparece en el primer intento, espera 5s y reintenta
+   - Si hay múltiples reqs del mismo tipo (ej: UMM906 y HTC822), sube el PDF a todos
 6. Pasa al siguiente item o termina
 
 **Dropdown de sectores (sobres empresa):**
@@ -194,25 +213,45 @@ Algunos sobres de tipo empresa muestran un dropdown "Sectores" que es obligatori
 - **Múltiples opciones sin `sector`**: lanza error con `err.sectores = [{value, text}]`; bot.js pregunta al usuario y reintenta con el valor elegido
 - **`sector` provisto**: busca y selecciona la opción que coincide
 
-Al seleccionar el sector, se intenta llamar `setSectores(sel)` / `setSector(sel)` (patrón de CD) antes del evento `change`, para que los hidden fields del form queden correctamente poblados antes de llamar `GrabarRequerimientos`.
+**Matching exacto en generación:**
+`cdScrapearTipoRequerimiento` y `cdGenerarRequerimiento` usan matching exacto (normalizado) para el nombre del requerido en `#cmbSobre`. No hay fuzzy fallback. Si no hay exacto → error claro. Los nombres de reqs vienen de la lista propia de CD, por lo que SIEMPRE debe existir match exacto.
 
 **Funciones:**
-- `cdScrapearTipoRequerimiento(page, nombreRequerido)` en cd.js — descubrimiento de tipo
+- `cdScrapearTipoRequerimiento(page, nombreRequerido)` en cd.js — descubrimiento de tipo (exacto)
 - `cdGenerarRequerimiento(page, tipo, nombreRequerido, sector = null)` en cd.js — automatización del modal
+- `cdDetectarNombreEmpresa(page)` en cd.js — lee primera columna del área de trabajo de Bandeja.aspx
 - `guardarTipoMapeo(chatId, nombreBase, tipo)` en mapeos.js — persiste el tipo en el JSON
 - `leerTipoMapeo(chatId, nombreBase)` en mapeos.js — lee tipo guardado
 - `_mostrarGenerables`, `_procesarSiguienteGenerable`, `_generarItem` en bot.js — orquestación
 
 ### matchearPaginasConReqs — lógica de validación y deduplicación (claude.js)
 
+`matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendientes, nombreEmpresa = "")` — el cuarto parámetro se pasa desde bot.js con `cliente.nombreEmpresa`.
+
 **Validación de grupos por tipo detectado (no por nombre de req):**
-El filtro que descarta reqs sin mapeo aprendido usa `tipo_detectado` de `paginas_clasificadas` (lo que la IA detectó visualmente) comparado contra los nombres de mapeos. Antes usaba el nombre del req de CD, lo que fallaba cuando el mapeo tiene un nombre distinto al req en CD (ej: mapeo "F 931" vs req "Planilla de capacitación-2026-4"). La IA recibe instrucción explícita de usar el nombre EXACTO del tipo aprendido en `tipo_detectado`.
+El filtro usa `tipo_detectado` de `paginas_clasificadas` comparado contra nombres de mapeos. La IA usa el nombre EXACTO del tipo aprendido en `tipo_detectado`.
+
+**Filtros de reqs asignados por la IA (paso 3 del loop):**
+Después de que la IA asigna índices de reqs a cada grupo, se aplican dos filtros antes de aceptarlos:
+1. **Entidad**: el req debe tener la misma entidad que el grupo (o sin entidad). Previene que la IA asigne req de HTC822 a un grupo de UMM906.
+2. **Nombre**: `baseNombre(req)` debe empezar con `tipoBase` o viceversa. Previene que "Pago del seguro técnico" se asigne a un grupo cuyo tipo es "Seguro técnico" — son documentos distintos y ninguno empieza con el otro. Permite variantes legítimas como "Recibos de haberes ram" para tipo "Recibos de haberes".
+
+Si después de estos filtros `reqs.length === 0` → el grupo va a `sinRequerido` (generable).
+
+**Rescue de sinRequerido por entity mismatch:**
+Al final del procesamiento, los items en `sinRequerido` que SÍ tienen reqs pendientes por nombre de tipo (pero con entidad diferente, ej: dueño vs patente) se mueven a grupos con todos esos reqs. Esto cubre documentos de vehículos donde el doc muestra el nombre del propietario pero CD usa la patente como entidad.
+
+**Documentos de empresa (sin entidad):**
+Páginas en `sinAsignar` con `tipo_detectado` reconocido se reagrupan como docs de empresa. Buscan reqs pendientes por nombre de tipo (sin filtro de entidad). Aplica cuando la IA no detecta patente ni nombre en la página.
 
 **Deduplicación por período:**
-Para cada par `(baseNombre × entidad)`, solo se conserva el req con el período más reciente (mayor año, luego mayor número en el sufijo `-YYYY-N`). Los reqs de períodos anteriores van en `grupo.omitidos[]` y no se suben. En `bot.js` se muestran con ⏩ en la confirmación y en el resumen final post-subida.
+Para cada par `(baseNombre × entidad)`, solo se conserva el req con el período más reciente (mayor año, luego mayor número en el sufijo `-YYYY-N`). Los reqs de períodos anteriores van en `grupo.omitidos[]`.
 
 **Advertencia de período desactualizado:**
-Si el req más reciente de un grupo está 2+ meses atrás del mes actual (calculado con `año × 12 + período` para manejar cambios de año), el mensaje de confirmación incluye un aviso ⚠️ con cuántos meses atrás está.
+Si el req más reciente de un grupo está 2+ meses atrás del mes actual, el mensaje de confirmación incluye un aviso ⚠️.
+
+**Prompt con nombre de empresa:**
+Si `nombreEmpresa` está configurado, el PASO 1 del prompt incluye: "si este nombre aparece junto a una patente → usá la patente como entidad; si aparece solo → dejá entidad vacía (doc de empresa)". Resuelve la confusión cuando la empresa tiene nombre de persona (ej: "MATESIN CLAUDIO FABIAN").
 
 ### Panel web con Cloudflare Tunnel
 `web.js` levanta un servidor HTTP en el puerto `WEB_PORT` (default 3100). El acceso externo se hace via Cloudflare Tunnel (túnel `controlbun-web`, ID `4994129b-9a21-4e27-ad2e-440455820877`), sin abrir puertos en el router.
@@ -247,6 +286,7 @@ Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pie
 | `unico_confirmando` | Confirmando subida directa |
 | `config_esperando_user` | Esperando email de CD |
 | `config_esperando_pass` | Esperando contraseña de CD |
+| `config_esperando_empresa` | Esperando nombre de empresa (si auto-detección falló) |
 | `trabajar_confirmando` | Confirmando subida con IA |
 | `trabajar_generables` | Post-subida: mostrando lista de docs sin requerido en CD, esperando selección |
 | `trabajar_generando` | Procesando items a generar en secuencia |
@@ -287,7 +327,7 @@ WEB_URL=https://mapeos.controldoc.app
 |---|---|
 | Renderizado PDF (Playwright + pdfjs CDN) | ✅ Funcionando |
 | Corte de PDFs (pdf-lib) | ✅ Implementado |
-| Flujo /config (credenciales CD) | ✅ Completo y probado |
+| Flujo /config (credenciales + auto-detección nombre empresa) | ✅ Completo y probado |
 | Flujo /aprender mejorado | ✅ Con detección de conflictos, auto-skip 1 pág, sugerencia continuar |
 | Flujo /unico (subida directa sin IA) | ✅ Implementado |
 | Flujo /mapeos (gestión de mapeos) | ✅ Implementado |
@@ -301,11 +341,12 @@ WEB_URL=https://mapeos.controldoc.app
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
 | cd.js: subir archivo (adjuntar + continuar + enviar) | ✅ Probado y funcionando |
+| cd.js: detectar nombre empresa automáticamente | ✅ Funcionando (primera columna área de trabajo) |
 | claude.js: multi-provider (Claude/Gemini/Ollama) | ✅ Switcheable en runtime |
-| claude.js: matchearPaginasConReqs | ✅ Validación por tipo_detectado, dedup por período, bucket sinRequerido |
+| claude.js: matchearPaginasConReqs | ✅ Filtros de entidad y nombre, rescue entity-mismatch, docs empresa sin entidad, nombre empresa en prompt |
 | Flujo Trabajar en bot.js | ✅ Con omitidos por período, aviso de reqs desactualizados, oferta de generación |
-| Generación de requeridos faltantes | ✅ Scraping automático de tipo + selección de sector + automación modal CD + upload post-generación |
-| Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` |
+| Generación de requeridos faltantes | ✅ Matching exacto en modal + retry post-generación + upload a múltiples entidades (patentes) |
+| Panel web (`/web`) con Cloudflare Tunnel | ✅ Funcionando en `mapeos.controldoc.app` con cache-busting de imágenes |
 | Texto estable en mapeos (al aprender) | ⏳ Pendiente |
 | Prueba end-to-end completa con clientes reales | ⏳ Pendiente |
 
@@ -353,6 +394,7 @@ CD tiene un retraso antes de que el botón "Buscar" esté listo. `_clickBuscarYE
 - No crear key de Gemini desde Google Cloud Console — usar aistudio.google.com
 - **No navegar directamente a `BandejaDetalle.aspx` con `page.goto`** si el href no tiene `noCache=` — CD devuelve HTTP 500. Siempre pasar por `Bandeja.aspx` + `fnDetalle(ID)`
 - No intentar hacer click en las filas de la bandeja para navegar — `__doPostBack` de ASP.NET falla con índices desfasados tras subidas anteriores
+- **No usar fuzzy matching en cdScrapearTipoRequerimiento ni cdGenerarRequerimiento** — los nombres vienen de la lista propia de CD, siempre hay match exacto. El fuzzy causaba seleccionar "Pago del seguro automotor" en vez de "Seguro automotor"
 
 ## Para continuar / debug
 
