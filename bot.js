@@ -1589,11 +1589,18 @@ function* _chunksVenc(msg, max = 3800) {
 
 function _msgParteMensual(personal, maquinas) {
   const total = personal.actualizados + maquinas.actualizados;
-  if (total === 0) return "✅ Parte mensual: ya estaba todo al día (0 cambios).";
   const lineas = [];
+  const errores = [];
   if (personal.actualizados > 0) lineas.push(`👷 Personal: ${personal.actualizados} empleado${personal.actualizados !== 1 ? "s" : ""}`);
   if (maquinas.actualizados > 0) lineas.push(`🚗 Máquinas: ${maquinas.actualizados} vehículo${maquinas.actualizados !== 1 ? "s" : ""}`);
-  return `✅ Parte mensual grabado:\n${lineas.join("\n")}`;
+  if (personal?.ok === false && personal?.error) errores.push(`⚠️ Personal: ${personal.error}`);
+  if (maquinas?.ok === false && maquinas?.error) errores.push(`⚠️ Máquinas: ${maquinas.error}`);
+  if (!lineas.length && !errores.length) return "✅ Parte mensual: ya estaba todo al día (0 cambios).";
+  const bloques = [];
+  if (lineas.length) bloques.push(`✅ Parte mensual grabado:\n${lineas.join("\n")}`);
+  else if (total === 0) bloques.push("✅ Parte mensual: sin cambios grabados.");
+  if (errores.length) bloques.push(errores.join("\n"));
+  return bloques.join("\n\n");
 }
 
 // Día 1 de cada mes a las 08:00

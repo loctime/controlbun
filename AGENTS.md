@@ -177,6 +177,16 @@ Cada archivo en `mapeos/{chatId}/` representa UN tipo de documento (ej: "Recibo 
 - Devuelve `{ items: [{ tipo, nombre, columna, fecha, diasFaltantes }], screenshots: [{ buffer, nombre }] }`.
 - `diasPersonal` y `diasVehiculos` vienen de `cliente.diasPersonal` / `cliente.diasVehiculos` (defaults 7 y 15 en clientes.js).
 
+### cdGrabarParteMensual — lectura/escritura de ParteMensual.aspx
+`cdGrabarParteMensual(page)` — para `/partemes` manual y el cron del día 1:
+- URL: `ParteMensual.aspx?menu=8`
+- Antes de procesar, selecciona "Todas/Todos" en Planta si existe y luego hace `Buscar` con "Sólo sin confirmar".
+- Los checkboxes del parte deben marcarse con `click()` real. No alcanza con `cb.checked = true` porque CD no persiste ese cambio al refrescar.
+- El botón `Grabar parte` es `type=button`, no `submit`. Su `onclick` usa `confirmaParte(); ... WebForm_DoPostBackWithOptions(...)`.
+- Para grabar, priorizar el flujo WebForms real (`WebForm_DoPostBackWithOptions` o `__doPostBack`). `form.submit()` solo queda como fallback.
+- `personal` y `maquinas` se procesan de forma independiente. Si uno falla, el otro debe seguir.
+- El resultado devuelve `{ actualizados, total, ok, error }` por cada tipo para que el bot y el cron puedan informar fallos parciales.
+
 ### Playwright para renderizado de PDFs
 pdfjs + node-canvas falla con imágenes embebidas en Node.js (`"Image or Canvas expected"`).
 Solución: Playwright lanza Chromium headless y ejecuta pdfjs v3 desde CDN.
