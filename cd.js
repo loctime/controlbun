@@ -692,60 +692,62 @@ export async function cdGrabarParteMensual(page) {
     }
   };
 
-  const estadoCheckboxes = () => page.evaluate(() => {
-    const cbs = Array.from(document.querySelectorAll("td input[type='checkbox']"));
-    return {
-      total: cbs.length,
-      habilitados: cbs.filter(c => !c.disabled).length,
-      sinMarcar: cbs.filter(c => !c.disabled && !c.checked).length,
-      deshabilitados: cbs.filter(c => c.disabled).length,
-    };
-  });
-
-  // Buscar → tildar → Grabar. Repite hasta que no queden checkboxes sin marcar tras el Buscar.
+  // Tilda la última columna de mes disponible y clickea Grabar siempre.
   const tildarMesActualYGrabar = async (tipo) => {
-    let totalActualizados = 0;
+    const resultado = await page.evaluate(() => {
+      function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
 
-    for (let intento = 1; intento <= 5; intento++) {
-      // Siempre buscar al inicio de cada intento (la primera vez y tras cada postback)
-      await clickBuscar();
-
-      const estado = await estadoCheckboxes();
-      console.log(`[PARTE] ${tipo} intento ${intento}: total=${estado.total} habilitados=${estado.habilitados} sinMarcar=${estado.sinMarcar} deshabilitados=${estado.deshabilitados}`);
-
-      if (estado.sinMarcar === 0) {
-        console.log(`[PARTE] ${tipo}: sin pendientes → OK`);
-        break;
+      // Buscar la ÚLTIMA columna de mes disponible (la más a la derecha con formato "Mmm-YYYY")
+      // Ignora "Contrato Asignado" y otras columnas que no son meses
+      let colIdx = -1, colName = "";
+      for (const tr of document.querySelectorAll("tr")) {
+        const ths = tr.querySelectorAll("th");
+        if (ths.length < 4) continue;
+        // Recorre de derecha a izquierda y toma la primera que parezca un mes (ej: "Abr-2026")
+        for (let i = ths.length - 1; i >= 0; i--) {
+          const txt = norm(ths[i].textContent);
+          // Un mes tiene formato "mes-año" con 4 dígitos de año
+          if (/\d{4}/.test(txt) && /[a-z]{3}/.test(txt)) {
+            colIdx = i; colName = ths[i].textContent.trim(); break;
+          }
+        }
+        if (colIdx >= 0) break;
       }
 
-      const actualizados = await page.evaluate(() => {
-        let n = 0;
-        for (const cb of document.querySelectorAll("td input[type='checkbox']")) {
-          if (!cb.disabled && !cb.checked) { cb.checked = true; n++; }
-        }
-        return n;
-      });
-      totalActualizados += actualizados;
-      console.log(`[PARTE] ${tipo}: tildados ${actualizados}`);
+      if (colIdx < 0) return { actualizados: 0, total: 0, info: "ninguna columna de mes encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
 
-      const btnGrabar = page.locator("#ctl00_ContentPlaceHolderMain_btGrabar");
-      const btnVisible = await btnGrabar.isVisible().catch(() => false);
-      console.log(`[PARTE] ${tipo}: botón Grabar visible=${btnVisible}`);
-      if (!btnVisible) { console.log(`[PARTE] ${tipo}: botón no encontrado, abortando`); break; }
+      let actualizados = 0, total = 0;
+      for (const tr of document.querySelectorAll("tr")) {
+        const tds = tr.querySelectorAll("td");
+        if (tds.length < 4) continue;
+        const td = tds[colIdx];
+        if (!td) continue;
+        const cb = td.querySelector("input[type='checkbox']");
+        if (!cb || cb.disabled) continue;
+        total++;
+        if (!cb.checked) { cb.checked = true; actualizados++; }
+      }
+      return { actualizados, total, info: `col ${colIdx} "${colName}"` };
+    }).catch(err => ({ actualizados: 0, total: 0, info: `evaluate error: ${err.message}` }));
 
-      await page.evaluate(() => {
-        window.confirmaParte = function() { __doPostBack("ctl00$ContentPlaceHolderMain$btGrabar", ""); };
-      });
-      console.log(`[PARTE] ${tipo}: click Grabar…`);
-      await Promise.all([
-        page.waitForLoadState("domcontentloaded").catch(() => {}),
-        btnGrabar.click(),
-      ]);
-      await page.waitForTimeout(3000);
-      console.log(`[PARTE] ${tipo}: post-grabar url=${page.url()}`);
+    const { actualizados = 0, total = 0, info = '' } = resultado || {};
+    console.log(`[PARTE] ${tipo}: ${info} → ${actualizados}/${total}`);
+
+    // Grabar siempre, esté o no tildado previamente
+    if (total > 0) {
+      const btnGrabar = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /grabar/i }).first();
+      if (await btnGrabar.isVisible().catch(() => false)) {
+        await btnGrabar.click();
+        await page.waitForTimeout(3000);
+        console.log(`[PARTE] ${tipo}: Grabar parte OK`);
+      } else {
+        console.log(`[PARTE] ${tipo}: botón Grabar no encontrado`);
+      }
+    } else {
+      console.log(`[PARTE] ${tipo}: sin filas, nada que grabar`);
     }
 
-    return { actualizados: totalActualizados, total: 0 };
+    return { actualizados, total };
   };
 
   // Personal (defecto al cargar la página)
