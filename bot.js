@@ -42,7 +42,7 @@ function formatearReqs(reqs, { mostrarTodos = false } = {}) {
     const entidad = r.entidad ? ` Ã¢â‚¬â€ <i>${escapeHtml(r.entidad)}</i>` : "";
     return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
   });
-  if (resto > 0) lineas.push(`\n<i>... y ${resto} mÃƒÂ¡s. EscribÃƒÂ­ parte del nombre para filtrar.</i>`);
+  if (resto > 0) lineas.push(`\n<i>... y ${resto} más. Escribí parte del nombre para filtrar.</i>`);
   return lineas.join("\n");
 }
 
