@@ -638,36 +638,29 @@ export async function cdGrabarParteMensual(page) {
     }
   };
 
-  // Tilda solo la columna del mes actual y clickea Grabar si hubo cambios.
+  // Tilda la última columna de mes disponible y clickea Grabar siempre.
   const tildarMesActualYGrabar = async (tipo) => {
-    const { actualizados, total, debug } = await page.evaluate(() => {
+    const resultado = await page.evaluate(() => {
       function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth();
-      const meses = [
-        ["ene","enero"], ["feb","febrero"], ["mar","marzo"],   ["abr","abril"],
-        ["may","mayo"],  ["jun","junio"],   ["jul","julio"],   ["ago","agosto"],
-        ["sep","septiembre","set"], ["oct","octubre"], ["nov","noviembre"], ["dic","diciembre"]
-      ];
-      const nombresMes = meses[month];
-      const yearStr = String(year);
 
-      // Buscar la columna del mes actual en la fila de encabezados
+      // Buscar la ÚLTIMA columna de mes disponible (la más a la derecha con formato "Mmm-YYYY")
+      // Ignora "Contrato Asignado" y otras columnas que no son meses
       let colIdx = -1, colName = "";
       for (const tr of document.querySelectorAll("tr")) {
         const ths = tr.querySelectorAll("th");
         if (ths.length < 4) continue;
-        for (let i = 0; i < ths.length; i++) {
+        // Recorre de derecha a izquierda y toma la primera que parezca un mes (ej: "Abr-2026")
+        for (let i = ths.length - 1; i >= 0; i--) {
           const txt = norm(ths[i].textContent);
-          if (txt.includes(yearStr) && nombresMes.some(m => txt.includes(m))) {
+          // Un mes tiene formato "mes-año" con 4 dígitos de año
+          if (/\d{4}/.test(txt) && /[a-z]{3}/.test(txt)) {
             colIdx = i; colName = ths[i].textContent.trim(); break;
           }
         }
         if (colIdx >= 0) break;
       }
 
-      if (colIdx < 0) return { actualizados: 0, total: 0, debug: "columna mes actual no encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
+      if (colIdx < 0) return { actualizados: 0, total: 0, info: "ninguna columna de mes encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
 
       let actualizados = 0, total = 0;
       for (const tr of document.querySelectorAll("tr")) {
@@ -680,12 +673,14 @@ export async function cdGrabarParteMensual(page) {
         total++;
         if (!cb.checked) { cb.checked = true; actualizados++; }
       }
-      return { actualizados, total, debug: `col ${colIdx} "${colName}"` };
-    });
+      return { actualizados, total, info: `col ${colIdx} "${colName}"` };
+    }).catch(err => ({ actualizados: 0, total: 0, info: `evaluate error: ${err.message}` }));
 
-    console.log(`[PARTE] ${tipo}: ${debug} → ${actualizados}/${total}`);
+    const { actualizados = 0, total = 0, info = '' } = resultado || {};
+    console.log(`[PARTE] ${tipo}: ${info} → ${actualizados}/${total}`);
 
-    if (actualizados > 0) {
+    // Grabar siempre, esté o no tildado previamente
+    if (total > 0) {
       const btnGrabar = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /grabar/i }).first();
       if (await btnGrabar.isVisible().catch(() => false)) {
         await btnGrabar.click();
@@ -694,6 +689,8 @@ export async function cdGrabarParteMensual(page) {
       } else {
         console.log(`[PARTE] ${tipo}: botón Grabar no encontrado`);
       }
+    } else {
+      console.log(`[PARTE] ${tipo}: sin filas, nada que grabar`);
     }
 
     return { actualizados, total };
