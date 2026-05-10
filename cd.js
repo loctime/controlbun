@@ -1453,6 +1453,11 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     }
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
+    const acumularMasCercanos = (lista, item) => {
+      if (!lista.length || item.diasFaltantes < lista[0].diasFaltantes) return [item];
+      if (item.diasFaltantes === lista[0].diasFaltantes) return [...lista, item];
+      return lista;
+    };
 
     let mejor = null;
     let mejorFechas = -1;
@@ -1480,7 +1485,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       : -1;
 
     let totalConFecha = 0;
-    let masCercano = null;
+    let masCercanos = [];
     const items = [];
     for (const tr of mejor.querySelectorAll("tr")) {
       const tds = Array.from(tr.querySelectorAll("td"));
@@ -1501,15 +1506,15 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         const col = (headers[i] || "").trim();
         if (/^estado/i.test(col)) continue;
         const dias = Math.round((f - hoy) / 864e5);
-        if (!masCercano || dias < masCercano.diasFaltantes) {
-          masCercano = { tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias };
-        }
+        masCercanos = acumularMasCercanos(masCercanos, {
+          tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias
+        });
         if (dias > umbral) continue;
         items.push({ tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
       }
     }
 
-    return { items, totalConFecha, masCercano };
+    return { items, totalConFecha, masCercanos };
   }, [tipoParam, umbralParam]);
 
   const leerResumenProveedor = (umbralGeneral, umbralEmpresa) => page.evaluate(([uGeneral, uEmpresa]) => {
@@ -1526,14 +1531,19 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     }
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
+    const acumularMasCercanos = (lista, item) => {
+      if (!lista.length || item.diasFaltantes < lista[0].diasFaltantes) return [item];
+      if (item.diasFaltantes === lista[0].diasFaltantes) return [...lista, item];
+      return lista;
+    };
 
     const resultado = {
       generalItems: [],
       empresaItems: [],
       totalGeneral: 0,
       totalEmpresa: 0,
-      masCercanoGeneral: null,
-      masCercanoEmpresa: null,
+      masCercanosGeneral: [],
+      masCercanosEmpresa: [],
     };
 
     const bodyText = document.body?.innerText || "";
@@ -1544,13 +1554,13 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       if (f) {
         const dias = Math.round((f - hoy) / 864e5);
         resultado.totalGeneral = 1;
-        resultado.masCercanoGeneral = {
+        resultado.masCercanosGeneral = [{
           tipo: "general",
           nombre: "Proveedor",
           columna: "Documentacion vigente",
           fecha: fechaTxt,
           diasFaltantes: dias,
-        };
+        }];
         if (dias <= uGeneral) {
           resultado.generalItems.push({
             tipo: "general",
@@ -1593,15 +1603,13 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         resultado.totalEmpresa++;
         const col = (headers[i] || "").trim();
         const dias = Math.round((f - hoy) / 864e5);
-        if (!resultado.masCercanoEmpresa || dias < resultado.masCercanoEmpresa.diasFaltantes) {
-          resultado.masCercanoEmpresa = {
-            tipo: "empresa",
-            nombre: "Proveedor",
-            columna: col,
-            fecha: (tds[i].textContent || "").trim(),
-            diasFaltantes: dias,
-          };
-        }
+        resultado.masCercanosEmpresa = acumularMasCercanos(resultado.masCercanosEmpresa, {
+          tipo: "empresa",
+          nombre: "Proveedor",
+          columna: col,
+          fecha: (tds[i].textContent || "").trim(),
+          diasFaltantes: dias,
+        });
         if (dias > uEmpresa) continue;
         resultado.empresaItems.push({
           tipo: "empresa",
@@ -1618,7 +1626,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   const umbralMax = Math.max(diasPersonal, diasVehiculos);
   const todosItems = [];
   const screenshots = [];
-  const debugPorTipo = { general: null, empresa: null, personal: null, vehiculo: null };
+  const debugPorTipo = { general: [], empresa: [], personal: [], vehiculo: [] };
 
   const capturar = () => page.screenshot({ type: "jpeg", quality: 80, fullPage: true }).catch(() => null);
 
@@ -1636,10 +1644,10 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   const selPers = await seleccionarTipo("personal");
   if (selPers.ok && !selPers.yaEstaba) await page.waitForTimeout(5000);
   await clickBuscar();
-  const { items: itemsPers, totalConFecha: totalPers, masCercano: masCercanoPers } =
+  const { items: itemsPers, totalConFecha: totalPers, masCercanos: masCercanosPers } =
     await reintentarLectura("Personal", () => leerTabla("personal", diasPersonal));
   todosItems.push(...itemsPers);
-  if (masCercanoPers) debugPorTipo.personal = masCercanoPers;
+  if (masCercanosPers?.length) debugPorTipo.personal = masCercanosPers;
   console.log(`[VENC] Personal: ${itemsPers.length} items (${totalPers} fechas detectadas)`);
   if (totalPers === 0) {
     const dbg = await debugTablasVisibles("personal");
@@ -1653,13 +1661,13 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     empresaItems: itemsEmp,
     totalGeneral: totalGen,
     totalEmpresa: totalEmp,
-    masCercanoGeneral: masCercanoGen,
-    masCercanoEmpresa: masCercanoEmp,
+    masCercanosGeneral: masCercanosGen,
+    masCercanosEmpresa: masCercanosEmp,
   } = await leerResumenProveedor(umbralMax, diasEmpresa);
   todosItems.push(...itemsGen);
   todosItems.push(...itemsEmp);
-  if (masCercanoGen) debugPorTipo.general = masCercanoGen;
-  if (masCercanoEmp) debugPorTipo.empresa = masCercanoEmp;
+  if (masCercanosGen?.length) debugPorTipo.general = masCercanosGen;
+  if (masCercanosEmp?.length) debugPorTipo.empresa = masCercanosEmp;
   console.log(`[VENC] General: ${itemsGen.length} items (${totalGen} fechas detectadas)`);
   if (totalGen === 0) {
     const dbg = await debugTablasVisibles("general");
@@ -1682,10 +1690,10 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   if (selMaq.ok) {
     if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
     await clickBuscar();
-    const { items: itemsMaq, totalConFecha: totalMaq, masCercano: masCercanoMaq } =
+    const { items: itemsMaq, totalConFecha: totalMaq, masCercanos: masCercanosMaq } =
       await reintentarLectura("Vehiculos", () => leerTabla("vehiculo", diasVehiculos));
     todosItems.push(...itemsMaq);
-    if (masCercanoMaq) debugPorTipo.vehiculo = masCercanoMaq;
+    if (masCercanosMaq?.length) debugPorTipo.vehiculo = masCercanosMaq;
     console.log(`[VENC] Vehiculos: ${itemsMaq.length} items (${totalMaq} fechas detectadas)`);
     const ssMaq = await capturar();
     if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
@@ -1693,8 +1701,11 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     console.warn("[VENC] No se encontro opcion maquinas en el dropdown.");
   }
 
-  for (const [tipo, item] of Object.entries(debugPorTipo)) {
-    if (item) console.log(`[VENC] Debug ${tipo}: ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
+  for (const [tipo, lista] of Object.entries(debugPorTipo)) {
+    if (!lista?.length) continue;
+    for (const item of lista) {
+      console.log(`[VENC] Debug ${tipo}: ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
+    }
   }
 
   return { items: todosItems, screenshots, debugPorTipo };

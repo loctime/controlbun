@@ -247,12 +247,15 @@ bot.command("vencimientos", async (ctx) => {
     const { items, screenshots, debugPorTipo } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
     const debugLines = [];
     for (const tipo of ["general", "empresa", "personal", "vehiculo"]) {
-      const item = debugPorTipo?.[tipo];
-      if (!item) {
+      const lista = Array.isArray(debugPorTipo?.[tipo]) ? debugPorTipo[tipo] : [];
+      if (!lista.length) {
         debugLines.push(`${tipo}: sin fecha detectada`);
         continue;
       }
-      debugLines.push(`${tipo}: ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
+      debugLines.push(`${tipo}:`);
+      for (const item of lista) {
+        debugLines.push(`- ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
+      }
     }
     const debugTxt = `\n\n<code>Debug por tipo:\n${escapeHtml(debugLines.join("\n"))}</code>`;
 
