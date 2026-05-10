@@ -21,8 +21,8 @@ export async function cdCerrarSesion(context) {
   try { await context.close(); } catch {}
 }
 
-// ── Caché de sesiones activas por usuario ────────────────────────────────────
-const _sesionesActivas = new Map(); // chatId → { context, page, ts }
+// â”€â”€ CachÃ© de sesiones activas por usuario â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const _sesionesActivas = new Map(); // chatId â†’ { context, page, ts }
 const SESION_TTL = 25 * 60 * 1000; // 25 minutos
 
 async function _sesionEsValida(sesion) {
@@ -35,13 +35,13 @@ async function _sesionEsValida(sesion) {
   }
 }
 
-// Devuelve { ok: true, page, context } si hay sesión activa o puede loguear.
+// Devuelve { ok: true, page, context } si hay sesiÃ³n activa o puede loguear.
 // Devuelve { ok: false, motivo, screenshot? } si el login falla.
 export async function cdObtenerSesionActiva(chatId, cdUser, cdPass) {
   const cached = _sesionesActivas.get(chatId);
   if (cached && await _sesionEsValida(cached)) {
     cached.ts = Date.now();
-    console.log("[CD] Sesión reutilizada para", chatId);
+    console.log("[CD] SesiÃ³n reutilizada para", chatId);
     return { ok: true, page: cached.page, context: cached.context };
   }
   if (cached) {
@@ -59,7 +59,7 @@ export async function cdObtenerSesionActiva(chatId, cdUser, cdPass) {
 }
 
 // Detecta el nombre del proveedor/empresa desde la bandeja de CD.
-// El nombre aparece en la primera columna del área de trabajo.
+// El nombre aparece en la primera columna del Ã¡rea de trabajo.
 // Devuelve string o null si no pudo detectar.
 export async function cdDetectarNombreEmpresa(page) {
   try {
@@ -70,7 +70,7 @@ export async function cdDetectarNombreEmpresa(page) {
     const resultado = await page.evaluate(() => {
       const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
 
-      // Buscar en la primera columna de cada fila de tabla en el área de trabajo.
+      // Buscar en la primera columna de cada fila de tabla en el Ã¡rea de trabajo.
       // El nombre del proveedor suele estar en la primera celda de una fila de encabezado/datos.
       const filas = Array.from(document.querySelectorAll("tr"));
       const candidatos = [];
@@ -78,10 +78,10 @@ export async function cdDetectarNombreEmpresa(page) {
         const celdas = tr.querySelectorAll("td, th");
         if (!celdas.length) continue;
         const primeraCelda = norm(celdas[0].textContent);
-        // Descartar celdas vacías, muy largas, o que son claramente headers genéricos
+        // Descartar celdas vacÃ­as, muy largas, o que son claramente headers genÃ©ricos
         if (!primeraCelda || primeraCelda.length < 3 || primeraCelda.length > 80) continue;
-        if (/^\d+$/.test(primeraCelda)) continue; // solo números
-        if (/requerimiento|recurso|estado|fecha|acciones|buscar|filtro|n[uú]mero/i.test(primeraCelda)) continue;
+        if (/^\d+$/.test(primeraCelda)) continue; // solo nÃºmeros
+        if (/requerimiento|recurso|estado|fecha|acciones|buscar|filtro|n[uÃº]mero/i.test(primeraCelda)) continue;
         candidatos.push(primeraCelda);
       }
       // Devolver todos los candidatos para que el llamador pueda elegir o loguear
@@ -92,8 +92,8 @@ export async function cdDetectarNombreEmpresa(page) {
 
     // Tomar el primer candidato que tenga pinta de nombre (letras y espacios, no solo tecnicismos)
     const nombre = resultado.find(c =>
-      /[A-Za-záéíóúÁÉÍÓÚñÑ]{3,}/.test(c) &&
-      !/^\d{4}-\d+$/.test(c) // no es un período
+      /[A-Za-zÃ¡Ã©Ã­Ã³ÃºÃÃ‰ÃÃ“ÃšÃ±Ã‘]{3,}/.test(c) &&
+      !/^\d{4}-\d+$/.test(c) // no es un perÃ­odo
     );
 
     if (nombre) console.log(`[CD] Nombre empresa detectado: "${nombre}"`);
@@ -104,7 +104,7 @@ export async function cdDetectarNombreEmpresa(page) {
   }
 }
 
-// Invalida la sesión cacheada (usar al cambiar credenciales o en errores graves)
+// Invalida la sesiÃ³n cacheada (usar al cambiar credenciales o en errores graves)
 export function cdInvalidarSesion(chatId) {
   const cached = _sesionesActivas.get(chatId);
   if (cached) {
@@ -126,19 +126,19 @@ export async function cdLogin(page, user, pass) {
   console.log("[CD LOGIN] Usuario cargado");
 
   await page.locator('input[type="password"]:visible').first().fill(pass);
-  console.log("[CD LOGIN] Contraseña cargada");
+  console.log("[CD LOGIN] ContraseÃ±a cargada");
 
-  // Botón INGRESAR (excluir Microsoft / Soy nuevo / etc.)
+  // BotÃ³n INGRESAR (excluir Microsoft / Soy nuevo / etc.)
   const btn = page.locator('button, input[type="submit"], input[type="button"]').filter({
     hasText: /ingresar/i,
   }).first();
   const btnVisible = await btn.isVisible().catch(() => false);
-  console.log("[CD LOGIN] Botón INGRESAR visible:", btnVisible);
+  console.log("[CD LOGIN] BotÃ³n INGRESAR visible:", btnVisible);
 
   // Registrar el wait ANTES del click para evitar race condition
   const espera = page.waitForURL((url) => !url.href.toLowerCase().includes("login"), { timeout: 60000 });
   await btn.click();
-  console.log("[CD LOGIN] Click enviado, esperando redirección...");
+  console.log("[CD LOGIN] Click enviado, esperando redirecciÃ³n...");
 
   try {
     await espera;
@@ -146,7 +146,7 @@ export async function cdLogin(page, user, pass) {
     return { ok: true };
   } catch {
     const urlActual = page.url();
-    // Si la URL ya cambió aunque el wait haya fallado, el login fue exitoso
+    // Si la URL ya cambiÃ³ aunque el wait haya fallado, el login fue exitoso
     if (!urlActual.toLowerCase().includes("login")) {
       console.log("[CD LOGIN] Login OK (detectado post-catch), URL:", urlActual);
       return { ok: true };
@@ -155,15 +155,15 @@ export async function cdLogin(page, user, pass) {
     console.log("[CD LOGIN] Fallo real. URL:", urlActual);
     console.log("[CD LOGIN] Texto body (primeros 300):", texto.slice(0, 300));
     const screenshot = await page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
-    if (/incorrect|inv[aá]lid|err[oó]r|usuario o contrase/i.test(texto)) {
-      return { ok: false, motivo: "Usuario o contraseña incorrectos.", screenshot };
+    if (/incorrect|inv[aÃ¡]lid|err[oÃ³]r|usuario o contrase/i.test(texto)) {
+      return { ok: false, motivo: "Usuario o contraseÃ±a incorrectos.", screenshot };
     }
     return { ok: false, motivo: "Timeout esperando respuesta del login.", screenshot };
   }
 }
 
-// Verifica si un req quedó en Borrador tras la subida.
-// Asume que page ya está en Bandeja.aspx. Refresca con Buscar.
+// Verifica si un req quedÃ³ en Borrador tras la subida.
+// Asume que page ya estÃ¡ en Bandeja.aspx. Refresca con Buscar.
 // Devuelve true si fue enviado (no Borrador), false si sigue en borrador.
 async function _verificarNoBorrador(page, reqNombre, reqEntidad) {
   await _clickBuscarYEsperar(page);
@@ -182,12 +182,12 @@ async function _verificarNoBorrador(page, reqNombre, reqEntidad) {
       }
       return !linkText.includes("borrador");
     }
-    return true; // fila no encontrada → req enviado y quitado de pendientes
+    return true; // fila no encontrada â†’ req enviado y quitado de pendientes
   }, [reqNombre, reqEntidad]);
 }
 
 // Hace click en Buscar y espera que aparezcan filas en la tabla.
-// Si tras la espera no hay filas, reintenta el click una vez más.
+// Si tras la espera no hay filas, reintenta el click una vez mÃ¡s.
 async function _clickBuscarYEsperar(page) {
   const btnBuscar = page.locator('button, input[type="button"]').filter({ hasText: /buscar/i }).first();
   if (!await btnBuscar.isVisible().catch(() => false)) return;
@@ -200,11 +200,11 @@ async function _clickBuscarYEsperar(page) {
   });
 
   await btnBuscar.click();
-  console.log("[CD] Click Buscar — esperando tabla…");
+  console.log("[CD] Click Buscar â€” esperando tablaâ€¦");
   await page.waitForTimeout(3000);
 
   if (!await hayFilas()) {
-    console.log("[CD] Tabla vacía tras primer click, reintentando Buscar…");
+    console.log("[CD] Tabla vacÃ­a tras primer click, reintentando Buscarâ€¦");
     await page.waitForTimeout(3000);
     await btnBuscar.click();
     await page.waitForTimeout(3000);
@@ -217,7 +217,7 @@ export async function cdLeerRequerimientos(page) {
   await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1500);
 
-  // Expandir tabla a todos los registros si hay un select de paginación
+  // Expandir tabla a todos los registros si hay un select de paginaciÃ³n
   await page.evaluate(() => {
     const sel = document.querySelector("select[name='tblRequerimientos_length']");
     if (sel && sel.value !== "-1") {
@@ -233,7 +233,7 @@ export async function cdLeerRequerimientos(page) {
       return (s || "").replace(/\s+/g, " ").trim();
     }
 
-    // Detecta el índice de la columna "Recurso" en la tabla (portado de panel.js)
+    // Detecta el Ã­ndice de la columna "Recurso" en la tabla (portado de panel.js)
     function detectarIndiceColumnaRecurso() {
       const ths = Array.from(document.querySelectorAll("th"));
       for (let i = 0; i < ths.length; i++) {
@@ -254,19 +254,19 @@ export async function cdLeerRequerimientos(page) {
     // Extrae nombre de empleado o patente de la celda Recurso (portado de panel.js)
     function parsearRecurso(td) {
       if (!td) return "";
-      // Patente de vehículo
+      // Patente de vehÃ­culo
       const txt = textoPlano(td.textContent);
       const patente = txt.match(/\b[A-Z]{2,3}\d{3,4}[A-Z]?\b/);
       if (patente) return patente[0];
       // Nombre de empleado: primero buscar en el <a> del recurso
       const linkRecurso = td.querySelector("a");
       if (linkRecurso) return textoPlano(linkRecurso.textContent);
-      // Fallback: primera línea de innerText (antes de "Argentina", "Empleador", etc.)
+      // Fallback: primera lÃ­nea de innerText (antes de "Argentina", "Empleador", etc.)
       const lineas = (td.innerText || "").split(/\n/).map((l) => l.trim()).filter(Boolean);
       if (lineas.length > 0) {
         const primeraLinea = lineas[0];
         if (
-          /^([A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}\s+){1,}[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}$/.test(primeraLinea) &&
+          /^([A-Za-zÃÃ‰ÃÃ“ÃšÃ‘Ã¡Ã©Ã­Ã³ÃºÃ±]{2,}\s+){1,}[A-Za-zÃÃ‰ÃÃ“ÃšÃ‘Ã¡Ã©Ã­Ã³ÃºÃ±]{2,}$/.test(primeraLinea) &&
           !/argentina|empleador|contrato|seguridad|higiene/i.test(primeraLinea)
         ) return primeraLinea;
       }
@@ -326,23 +326,23 @@ export async function cdLeerRequerimientos(page) {
         );
         if (!coincide) continue;
       } else {
-        // Fallback: solo pendientes de envío
+        // Fallback: solo pendientes de envÃ­o
         const txtFila = textoPlano(tr.textContent);
-        if (!/pend envio|pend envío/i.test(txtFila)) continue;
+        if (!/pend envio|pend envÃ­o/i.test(txtFila)) continue;
       }
 
       const celdas = Array.from(tr.querySelectorAll(":scope > td"));
       const tdRecurso = idxRecurso >= 0 ? celdas[idxRecurso] : null;
       const entidad = parsearRecurso(tdRecurso || celdas.find((td) => !td.contains(link)));
 
-      // Intentar obtener la URL por múltiples vías (CD usa JS en vez de href estándar)
+      // Intentar obtener la URL por mÃºltiples vÃ­as (CD usa JS en vez de href estÃ¡ndar)
       let href = "";
       const esUrlValida = (u) => u && !u.startsWith("javascript:") && u !== window.location.href && !u.endsWith("#");
       if (esUrlValida(link.href)) href = link.href;
       if (!href) {
         for (const el of [link, tr]) {
           const oc = el.getAttribute("onclick") || "";
-          // fnDetalle(ID) — patrón principal de CD para navegación de reqs
+          // fnDetalle(ID) â€” patrÃ³n principal de CD para navegaciÃ³n de reqs
           const fnMatch = oc.match(/fnDetalle\((\d+)\)/);
           if (fnMatch) {
             try { href = new URL(`BandejaDetalle.aspx?origen=${fnMatch[1]}`, window.location.href).href; } catch {}
@@ -369,7 +369,7 @@ export async function cdLeerRequerimientos(page) {
   return reqs;
 }
 
-// Lee todos los TIPOS únicos de requerimientos de la cuenta (para /aprender).
+// Lee todos los TIPOS Ãºnicos de requerimientos de la cuenta (para /aprender).
 // Sin filtro de estado: escanea todas las filas visibles + widget Sobres activos.
 export async function cdLeerTiposRequerimientos(page) {
   await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
@@ -390,7 +390,7 @@ export async function cdLeerTiposRequerimientos(page) {
     function textoPlano(s) {
       return (s || "").replace(/\s+/g, " ").trim();
     }
-    // El dropdown de filtro de la bandeja tiene "Sobres activos" como primera opción,
+    // El dropdown de filtro de la bandeja tiene "Sobres activos" como primera opciÃ³n,
     // seguido de todos los tipos de requerimientos de la cuenta.
     for (const sel of document.querySelectorAll("select")) {
       const opciones = Array.from(sel.options).map((o) => textoPlano(o.textContent)).filter(Boolean);
@@ -402,7 +402,7 @@ export async function cdLeerTiposRequerimientos(page) {
   });
 
   let tipos = await leerDropdown();
-  // Si la página todavía no terminó de cargar el dropdown, esperar y reintentar
+  // Si la pÃ¡gina todavÃ­a no terminÃ³ de cargar el dropdown, esperar y reintentar
   if (!tipos.length) {
     await page.waitForTimeout(3000);
     tipos = await leerDropdown();
@@ -411,7 +411,7 @@ export async function cdLeerTiposRequerimientos(page) {
 }
 
 // Navega al requerimiento cuando no hay href guardado.
-// Re-lee la bandeja en el momento de la subida para obtener un href fresco —
+// Re-lee la bandeja en el momento de la subida para obtener un href fresco â€”
 // igual que /unico que siempre funciona porque lee y navega en el mismo momento.
 async function _navegarAReq(page, reqNombre, reqEntidad) {
   console.log(`[CD] _navegarAReq: re-leyendo bandeja para obtener href fresco`);
@@ -422,7 +422,7 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
   );
 
   if (reqFresco?.href) {
-    console.log(`[CD] _navegarAReq: href fresco → ${reqFresco.href.slice(0, 80)}`);
+    console.log(`[CD] _navegarAReq: href fresco â†’ ${reqFresco.href.slice(0, 80)}`);
     const origenMatch = reqFresco.href.match(/origen=(\d+)/);
     if (origenMatch && !reqFresco.href.includes("noCache=")) {
       // URL de fnDetalle: ya estamos en Bandeja tras cdLeerRequerimientos, ejecutar fnDetalle
@@ -436,22 +436,22 @@ async function _navegarAReq(page, reqNombre, reqEntidad) {
     return;
   }
 
-  // Si cdLeerRequerimientos no encontró href, los logs de debug habrán mostrado
-  // el href-attr y onclick del link — usar esa info para el siguiente ciclo de mejoras.
-  throw new Error(`No se encontró href para "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""} en la bandeja. Ver logs [CD] Sin href para diagnóstico.`);
+  // Si cdLeerRequerimientos no encontrÃ³ href, los logs de debug habrÃ¡n mostrado
+  // el href-attr y onclick del link â€” usar esa info para el siguiente ciclo de mejoras.
+  throw new Error(`No se encontrÃ³ href para "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""} en la bandeja. Ver logs [CD] Sin href para diagnÃ³stico.`);
 }
 
-// Sube un archivo PDF a un requerimiento específico.
-// reqNombre y reqEntidad se usan como fallback si href está vacío (CD usa JS navigation).
+// Sube un archivo PDF a un requerimiento especÃ­fico.
+// reqNombre y reqEntidad se usan como fallback si href estÃ¡ vacÃ­o (CD usa JS navigation).
 export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNombre = "", reqEntidad = "", _reintento = 0) {
   const tag = `[SUBIR] "${reqNombre}"${reqEntidad ? ` (${reqEntidad})` : ""}${_reintento > 0 ? ` [reintento ${_reintento}]` : ""}`;
-  console.log(`\n${tag} ── inicio`);
+  console.log(`\n${tag} â”€â”€ inicio`);
   console.log(`${tag} Archivo: ${nombreArchivo} (${(bufferPdf.length / 1024).toFixed(1)} KB)`);
 
-  // ── Navegación al requerimiento ──────────────────────────────────────────────
+  // â”€â”€ NavegaciÃ³n al requerimiento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (href && !href.startsWith("javascript:")) {
     if (href.includes("noCache=")) {
-      // URL directa (link.href de CD): navegar como página principal
+      // URL directa (link.href de CD): navegar como pÃ¡gina principal
       console.log(`${tag} Navegando por href directo: ${href.slice(0, 80)}`);
       await page.goto(href, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(1500);
@@ -469,14 +469,14 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
         await page.waitForTimeout(1500);
       }
     }
-    console.log(`${tag} URL tras navegación: ${page.url().slice(0, 80)}`);
+    console.log(`${tag} URL tras navegaciÃ³n: ${page.url().slice(0, 80)}`);
   } else {
-    console.log(`${tag} Sin href válido — buscando link en la bandeja`);
+    console.log(`${tag} Sin href vÃ¡lido â€” buscando link en la bandeja`);
     await _navegarAReq(page, reqNombre, reqEntidad);
-    console.log(`${tag} URL tras navegación: ${page.url().slice(0, 80)}`);
+    console.log(`${tag} URL tras navegaciÃ³n: ${page.url().slice(0, 80)}`);
   }
 
-  // Listar frames disponibles para diagnóstico
+  // Listar frames disponibles para diagnÃ³stico
   const listarFrames = () => {
     const frames = page.frames();
     console.log(`${tag} Frames activos (${frames.length}):`);
@@ -486,8 +486,8 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
 
   const capturar = () => page.screenshot({ type: "jpeg", quality: 70 }).catch(() => null);
 
-  // ── Paso 1: buscar y clickear "Adjuntar" ────────────────────────────────────
-  console.log(`${tag} Buscando botón "Adjuntar"...`);
+  // â”€â”€ Paso 1: buscar y clickear "Adjuntar" â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  console.log(`${tag} Buscando botÃ³n "Adjuntar"...`);
   let adjuntarClicked = false;
   for (const frame of page.frames()) {
     try {
@@ -495,7 +495,7 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
         .filter({ hasText: /adjuntar/i }).first();
       const count = await btn.count();
       const visible = count > 0 && await btn.isVisible().catch(() => false);
-      if (count > 0) console.log(`  → frame "${frame.url().slice(0, 60)}" — encontrado (visible: ${visible})`);
+      if (count > 0) console.log(`  â†’ frame "${frame.url().slice(0, 60)}" â€” encontrado (visible: ${visible})`);
       if (visible) {
         const textoBtn = await btn.innerText().catch(() => "?");
         console.log(`${tag} Click en Adjuntar: "${textoBtn.trim()}" en frame "${frame.url().slice(0, 60)}"`);
@@ -504,14 +504,14 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
         break;
       }
     } catch (e) {
-      console.log(`  → frame error: ${e.message.slice(0, 60)}`);
+      console.log(`  â†’ frame error: ${e.message.slice(0, 60)}`);
     }
   }
   if (!adjuntarClicked) {
-    console.log(`${tag} ⚠️ Botón Adjuntar no encontrado en ningún frame — intentando buscar input directamente`);
+    console.log(`${tag} âš ï¸ BotÃ³n Adjuntar no encontrado en ningÃºn frame â€” intentando buscar input directamente`);
   }
 
-  // ── Paso 2: esperar input[type="file"] ──────────────────────────────────────
+  // â”€â”€ Paso 2: esperar input[type="file"] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   console.log(`${tag} Esperando input[type="file"]...`);
   let fileInput = null;
   for (let intento = 0; intento < 20; intento++) {
@@ -528,25 +528,25 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
     }
     if (fileInput) break;
     if (intento === 9) {
-      console.log(`${tag} ⚠️ 5s sin input[type=file], re-listando frames...`);
+      console.log(`${tag} âš ï¸ 5s sin input[type=file], re-listando frames...`);
       listarFrames();
     }
   }
 
   if (!fileInput) {
-    console.log(`${tag} ❌ No apareció input[type="file"] tras 10s`);
-    const err = new Error(`No encontré input[type="file"] (${page.frames().length} frames). URL: ${page.url()}`);
+    console.log(`${tag} âŒ No apareciÃ³ input[type="file"] tras 10s`);
+    const err = new Error(`No encontrÃ© input[type="file"] (${page.frames().length} frames). URL: ${page.url()}`);
     err.screenshot = await capturar();
     throw err;
   }
 
-  // ── Paso 3: asignar el archivo ───────────────────────────────────────────────
+  // â”€â”€ Paso 3: asignar el archivo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   console.log(`${tag} Asignando archivo con setInputFiles: "${nombreArchivo}"`);
   await fileInput.setInputFiles({ name: nombreArchivo, mimeType: "application/pdf", buffer: bufferPdf });
-  console.log(`${tag} ✅ Archivo asignado`);
+  console.log(`${tag} âœ… Archivo asignado`);
 
-  // ── Paso 4: esperar "Archivo cargado con exito" y clickear "Continuar" ────────
-  console.log(`${tag} Esperando confirmación de upload en BandejaUpload...`);
+  // â”€â”€ Paso 4: esperar "Archivo cargado con exito" y clickear "Continuar" â”€â”€â”€â”€â”€â”€â”€â”€
+  console.log(`${tag} Esperando confirmaciÃ³n de upload en BandejaUpload...`);
   let uploadConfirmado = false;
   for (let i = 0; i < 30; i++) {
     await page.waitForTimeout(500);
@@ -564,7 +564,7 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
     }
     if (uploadConfirmado) break;
   }
-  if (!uploadConfirmado) console.log(`${tag} ⚠️ No apareció confirmación de upload tras 15s`);
+  if (!uploadConfirmado) console.log(`${tag} âš ï¸ No apareciÃ³ confirmaciÃ³n de upload tras 15s`);
 
   let continuarClicked = false;
   for (const frame of page.frames()) {
@@ -581,9 +581,9 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
       }
     } catch {}
   }
-  if (!continuarClicked) console.log(`${tag} ⚠️ Botón Continuar no encontrado`);
+  if (!continuarClicked) console.log(`${tag} âš ï¸ BotÃ³n Continuar no encontrado`);
 
-  // ── Paso 5: esperar que cierre el modal de upload, luego click "Enviar" ───────
+  // â”€â”€ Paso 5: esperar que cierre el modal de upload, luego click "Enviar" â”€â”€â”€â”€â”€â”€â”€
   console.log(`${tag} Esperando que cierre el modal de upload...`);
   // Esperar hasta que el frame BandejaUpload desaparezca
   for (let i = 0; i < 20; i++) {
@@ -593,12 +593,12 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
       console.log(`${tag} Modal cerrado tras ${(i + 1) * 0.5}s`);
       break;
     }
-    if (i === 19) console.log(`${tag} ⚠️ Modal BandejaUpload sigue abierto tras 10s`);
+    if (i === 19) console.log(`${tag} âš ï¸ Modal BandejaUpload sigue abierto tras 10s`);
   }
   await page.waitForTimeout(1000);
   listarFrames();
 
-  console.log(`${tag} Buscando botón "Enviar" (btnEnviar)...`);
+  console.log(`${tag} Buscando botÃ³n "Enviar" (btnEnviar)...`);
   let enviado = false;
   for (const frame of page.frames()) {
     if (!frame.url().includes("BandejaDetalle")) continue;
@@ -606,7 +606,7 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
       const resultado = await frame.evaluate(() => {
         const btn = document.getElementById("btnEnviar");
         if (!btn) return { ok: false, motivo: "btnEnviar no encontrado" };
-        if (btn.disabled) return { ok: false, motivo: "btnEnviar está disabled" };
+        if (btn.disabled) return { ok: false, motivo: "btnEnviar estÃ¡ disabled" };
         // Llamar __doPostBack directamente, saltando onclick
         if (typeof __doPostBack === "function") {
           __doPostBack("btnEnviar", "");
@@ -621,31 +621,31 @@ export async function cdSubirArchivo(page, href, bufferPdf, nombreArchivo, reqNo
       console.log(`${tag} Error en frame Enviar: ${e.message}`);
     }
   }
-  if (!enviado) console.log(`${tag} ⚠️ No se pudo clickear Enviar`);
+  if (!enviado) console.log(`${tag} âš ï¸ No se pudo clickear Enviar`);
 
   console.log(`${tag} Esperando 4s para que el servidor procese...`);
   await page.waitForTimeout(4000);
 
-  // Si no hubo confirmación de upload, verificar que el req no quedó en Borrador
+  // Si no hubo confirmaciÃ³n de upload, verificar que el req no quedÃ³ en Borrador
   if (!uploadConfirmado && reqNombre) {
-    console.log(`${tag} Upload sin confirmar — verificando Borrador en bandeja...`);
+    console.log(`${tag} Upload sin confirmar â€” verificando Borrador en bandeja...`);
     await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1500);
     const fueEnviado = await _verificarNoBorrador(page, reqNombre, reqEntidad);
     if (!fueEnviado) {
       if (_reintento < 1) {
-        console.log(`${tag} ⚠️ Req en Borrador — reintentando (intento 2/2)...`);
+        console.log(`${tag} âš ï¸ Req en Borrador â€” reintentando (intento 2/2)...`);
         return cdSubirArchivo(page, "", bufferPdf, nombreArchivo, reqNombre, reqEntidad, _reintento + 1);
       }
-      const err = new Error(`Quedó en Borrador tras 2 intentos.`);
+      const err = new Error(`QuedÃ³ en Borrador tras 2 intentos.`);
       err.borrador = true;
       err.screenshot = await capturar();
       throw err;
     }
-    console.log(`${tag} ✅ Verificado: fue enviado correctamente (no Borrador)`);
+    console.log(`${tag} âœ… Verificado: fue enviado correctamente (no Borrador)`);
   }
 
-  console.log(`${tag} ✅ Subida completada\n`);
+  console.log(`${tag} âœ… Subida completada\n`);
   return { ok: true };
 }
 
@@ -659,7 +659,7 @@ export async function cdGrabarParteMensual(page) {
   await page.waitForTimeout(2000);
 
   const seleccionarTipo = (texto) => page.evaluate((t) => {
-    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); }
     const buscado = norm(t);
     for (const sel of document.querySelectorAll("select")) {
       const opts = Array.from(sel.options || []);
@@ -674,13 +674,15 @@ export async function cdGrabarParteMensual(page) {
     return { ok: false };
   }, texto);
 
-  // Activa "Sólo sin confirmar" si no está marcado y hace Buscar
   const clickBuscar = async () => {
     await page.evaluate(() => {
       for (const cb of document.querySelectorAll("input[type='checkbox']")) {
         const label = (cb.labels?.[0]?.textContent || cb.title || cb.id || "").toLowerCase();
         if (label.includes("sin confirmar") || label.includes("sinconfirmar")) {
-          if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event("change", { bubbles: true })); }
+          if (!cb.checked) {
+            cb.checked = true;
+            cb.dispatchEvent(new Event("change", { bubbles: true }));
+          }
           break;
         }
       }
@@ -692,31 +694,186 @@ export async function cdGrabarParteMensual(page) {
     }
   };
 
-  // Tilda la última columna de mes disponible y clickea Grabar siempre.
-  const tildarMesActualYGrabar = async (tipo) => {
-    const resultado = await page.evaluate(() => {
-      function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+  const leerEstadoParte = async () => page.evaluate(() => {
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); }
 
-      // Buscar la ÚLTIMA columna de mes disponible (la más a la derecha con formato "Mmm-YYYY")
-      // Ignora "Contrato Asignado" y otras columnas que no son meses
-      let colIdx = -1, colName = "";
+    let colIdx = -1;
+    let colName = "";
+    for (const tr of document.querySelectorAll("tr")) {
+      const ths = tr.querySelectorAll("th");
+      if (ths.length < 4) continue;
+      for (let i = ths.length - 1; i >= 0; i--) {
+        const txt = norm(ths[i].textContent);
+        if (/\d{4}/.test(txt) && /[a-z]{3}/.test(txt)) {
+          colIdx = i;
+          colName = ths[i].textContent.trim();
+          break;
+        }
+      }
+      if (colIdx >= 0) break;
+    }
+
+    if (colIdx < 0) return { colIdx, colName, total: 0, checked: 0, unchecked: 0, info: "sin columna de mes" };
+
+    let total = 0;
+    let checked = 0;
+    let unchecked = 0;
+    for (const tr of document.querySelectorAll("tr")) {
+      const tds = tr.querySelectorAll("td");
+      if (tds.length < 4) continue;
+      const td = tds[colIdx];
+      if (!td) continue;
+      const cb = td.querySelector("input[type='checkbox']");
+      if (!cb || cb.disabled) continue;
+      total++;
+      if (cb.checked) checked++;
+      else unchecked++;
+    }
+
+    return { colIdx, colName, total, checked, unchecked, info: `col ${colIdx} "${colName}"` };
+  }).catch(err => ({ colIdx: -1, colName: "", total: 0, checked: 0, unchecked: 0, info: `evaluate error: ${err.message}` }));
+
+  const dispararGrabarParte = async (tipo) => {
+    const leerSenales = () => page.evaluate(() => ({
+      submitCalls: window.__cdParteSubmitCalls || 0,
+      alertMsg: window.__cdParteAlert || null,
+      confirmCalls: window.__cdParteConfirmCalls || 0,
+      eventTarget: document.getElementById("__EVENTTARGET")?.value || "",
+      eventArgument: document.getElementById("__EVENTARGUMENT")?.value || "",
+    })).catch(() => ({ submitCalls: 0, alertMsg: null, confirmCalls: 0, eventTarget: "", eventArgument: "" }));
+
+    const meta = await page.evaluate(() => {
+      window.__cdParteAlert = null;
+      window.__cdParteConfirmCalls = 0;
+      window.__cdParteSubmitCalls = 0;
+      window.alert = (msg) => { window.__cdParteAlert = String(msg || ""); };
+      window.confirm = () => {
+        window.__cdParteConfirmCalls = (window.__cdParteConfirmCalls || 0) + 1;
+        return true;
+      };
+
+      const btn = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button'))
+        .find(b => /grabar/i.test((b.textContent || b.value || "").trim()));
+      if (!btn) return { ok: false };
+
+      const form = btn.form || btn.closest("form");
+      if (form && !form.__cdParteHooked) {
+        form.addEventListener("submit", () => {
+          window.__cdParteSubmitCalls = (window.__cdParteSubmitCalls || 0) + 1;
+        });
+        form.__cdParteHooked = true;
+      }
+
+      return {
+        ok: true,
+        id: btn.id || "",
+        type: btn.type || "",
+        value: btn.value || "",
+        outerHTML: btn.outerHTML || "",
+        onclick: btn.getAttribute("onclick") || "",
+      };
+    });
+
+    if (!meta?.ok) return null;
+
+    const intentos = [];
+    const intentar = async (nombre, fn) => {
+      intentos.push(nombre);
+      const navPromise = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 6000 }).then(() => true).catch(() => false);
+      await fn();
+      await page.waitForTimeout(1500);
+      const navego = await navPromise;
+      const senales = await leerSenales();
+      if (navego) {
+        try {
+          await page.waitForLoadState("load", { timeout: 12000 });
+        } catch (_) {}
+        await page.waitForTimeout(1500);
+      }
+      return { navego, senales };
+    };
+
+    let ultimo = await intentar("native.click", () => page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button'))
+        .find(b => /grabar/i.test((b.textContent || b.value || "").trim()));
+      btn?.click();
+    }));
+
+    if (!ultimo.navego && !ultimo.senales.submitCalls) {
+      const match = (meta.onclick || "").match(/WebForm_DoPostBackWithOptions\(new WebForm_PostBackOptions\("([^"]+)"/);
+      if (match) {
+        ultimo = await intentar(`WebForm_DoPostBackWithOptions:${match[1]}`, () => page.evaluate((target) => {
+          if (typeof confirmaParte === "function") {
+            try { confirmaParte(); } catch (_) {}
+          }
+          if (typeof WebForm_DoPostBackWithOptions === "function" && typeof WebForm_PostBackOptions === "function") {
+            WebForm_DoPostBackWithOptions(new WebForm_PostBackOptions(target, "", true, "", "", false, true));
+          } else if (typeof __doPostBack === "function") {
+            __doPostBack(target, "");
+          }
+        }, match[1]));
+      }
+    }
+
+    if (!ultimo.navego && !ultimo.senales.submitCalls) {
+      const match = (meta.onclick || "").match(/__doPostBack\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]\)/);
+      if (match) {
+        ultimo = await intentar(`__doPostBack:${match[1]}`, () => page.evaluate(([target, arg]) => {
+          if (typeof __doPostBack === "function") __doPostBack(target, arg);
+        }, [match[1], match[2]]));
+      }
+    }
+
+    if (!ultimo.navego && !ultimo.senales.submitCalls) {
+      ultimo = await intentar("form.submit", () => page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button'))
+          .find(b => /grabar/i.test((b.textContent || b.value || "").trim()));
+        const form = btn?.form || btn?.closest("form");
+        form?.submit();
+      }));
+    }
+
+    console.log(`[PARTE] ${tipo}: boton id=${meta.id || "-"} type=${meta.type || "-"} value="${meta.value || ""}" onclick="${meta.onclick || ""}"`);
+    console.log(`[PARTE] ${tipo}: Grabar intentos ${intentos.join(" -> ")}`);
+    console.log(`[PARTE] ${tipo}: señales submit=${ultimo.senales.submitCalls} confirm=${ultimo.senales.confirmCalls} target=${ultimo.senales.eventTarget || "-"} arg=${ultimo.senales.eventArgument || "-"}`);
+    if (!ultimo.navego && !ultimo.senales.submitCalls && !ultimo.senales.confirmCalls) {
+      console.log(`[PARTE] ${tipo}: outerHTML ${meta.outerHTML}`);
+    }
+    if (ultimo.senales.alertMsg) console.log(`[PARTE] ${tipo}: alerta "${ultimo.senales.alertMsg}"`);
+    return ultimo;
+  };
+
+  const tildarMesActualYGrabar = async (tipo) => {
+    const antes = await leerEstadoParte();
+    const resultado = await page.evaluate(() => {
+      function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); }
+
+      let colIdx = -1;
+      let colName = "";
       for (const tr of document.querySelectorAll("tr")) {
         const ths = tr.querySelectorAll("th");
         if (ths.length < 4) continue;
-        // Recorre de derecha a izquierda y toma la primera que parezca un mes (ej: "Abr-2026")
         for (let i = ths.length - 1; i >= 0; i--) {
           const txt = norm(ths[i].textContent);
-          // Un mes tiene formato "mes-año" con 4 dígitos de año
           if (/\d{4}/.test(txt) && /[a-z]{3}/.test(txt)) {
-            colIdx = i; colName = ths[i].textContent.trim(); break;
+            colIdx = i;
+            colName = ths[i].textContent.trim();
+            break;
           }
         }
         if (colIdx >= 0) break;
       }
 
-      if (colIdx < 0) return { actualizados: 0, total: 0, info: "ninguna columna de mes encontrada — th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | ") };
+      if (colIdx < 0) {
+        return {
+          actualizados: 0,
+          total: 0,
+          info: "ninguna columna de mes encontrada - th: " + Array.from(document.querySelectorAll("th")).map(h => h.textContent.trim()).join(" | "),
+        };
+      }
 
-      let actualizados = 0, total = 0;
+      let actualizados = 0;
+      let total = 0;
       for (const tr of document.querySelectorAll("tr")) {
         const tds = tr.querySelectorAll("td");
         if (tds.length < 4) continue;
@@ -725,44 +882,87 @@ export async function cdGrabarParteMensual(page) {
         const cb = td.querySelector("input[type='checkbox']");
         if (!cb || cb.disabled) continue;
         total++;
-        if (!cb.checked) { cb.checked = true; actualizados++; }
+        if (!cb.checked) {
+          cb.click();
+          actualizados++;
+        }
       }
       return { actualizados, total, info: `col ${colIdx} "${colName}"` };
     }).catch(err => ({ actualizados: 0, total: 0, info: `evaluate error: ${err.message}` }));
 
-    const { actualizados = 0, total = 0, info = '' } = resultado || {};
-    console.log(`[PARTE] ${tipo}: ${info} → ${actualizados}/${total}`);
+    const { actualizados = 0, total = 0, info = "" } = resultado || {};
+    console.log(`[PARTE] ${tipo}: ${info} -> ${actualizados}/${total}`);
 
-    // Grabar siempre, esté o no tildado previamente
     if (total > 0) {
-      const btnGrabar = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /grabar/i }).first();
-      if (await btnGrabar.isVisible().catch(() => false)) {
-        await btnGrabar.click();
-        await page.waitForTimeout(3000);
+      await page.waitForTimeout(800);
+
+      const grabado = await dispararGrabarParte(tipo);
+      if (grabado) {
+        await clickBuscar();
+        const despues = await leerEstadoParte();
+        const cambioObservable = despues.total < antes.total || despues.unchecked < antes.unchecked;
+
+        if (!cambioObservable) {
+          const error = `[PARTE] ${tipo}: no hubo cambio visible tras grabar (${antes.info}: antes total=${antes.total}, unchecked=${antes.unchecked}; despues total=${despues.total}, unchecked=${despues.unchecked})`;
+          console.log(error);
+          return { actualizados, total, ok: false, error };
+        }
+
+        console.log(`[PARTE] ${tipo}: cambio visible tras grabar (${antes.total} -> ${despues.total})`);
         console.log(`[PARTE] ${tipo}: Grabar parte OK`);
+        return { actualizados, total, ok: true, error: null };
       } else {
-        console.log(`[PARTE] ${tipo}: botón Grabar no encontrado`);
+        console.log(`[PARTE] ${tipo}: boton Grabar no encontrado`);
+        return { actualizados, total, ok: false, error: `[PARTE] ${tipo}: boton Grabar no encontrado` };
       }
     } else {
       console.log(`[PARTE] ${tipo}: sin filas, nada que grabar`);
+      return { actualizados, total, ok: true, error: null };
     }
 
-    return { actualizados, total };
+    return { actualizados, total, ok: true, error: null };
   };
 
-  // Personal (defecto al cargar la página)
-  const selPers = await seleccionarTipo("personal");
-  if (!selPers.yaEstaba) await page.waitForTimeout(3000);
-  const personal = await tildarMesActualYGrabar("personal");
+  await page.evaluate(() => {
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); }
+    for (const sel of document.querySelectorAll("select")) {
+      const opts = Array.from(sel.options || []);
+      const todas = opts.find(o => norm(o.text).startsWith("todas") || norm(o.text).startsWith("todos"));
+      if (todas && !opts.some(o => norm(o.text) === "personal")) {
+        if (sel.value !== todas.value) {
+          sel.value = todas.value;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        break;
+      }
+    }
+  });
 
-  // Maquinas — mismo patrón que cdLeerVencimientos: mismo page, solo cambiar dropdown
-  const selMaq = await seleccionarTipo("maquinas");
-  if (!selMaq.ok) {
-    console.log("[PARTE] Dropdown maquinas no encontrado");
-    return { personal, maquinas: { actualizados: 0, total: 0 } };
+  let personal = { actualizados: 0, total: 0, ok: false, error: null };
+  try {
+    const selPers = await seleccionarTipo("personal");
+    if (!selPers.yaEstaba) await page.waitForTimeout(2000);
+    await clickBuscar();
+    personal = await tildarMesActualYGrabar("personal");
+  } catch (e) {
+    personal = { actualizados: 0, total: 0, ok: false, error: e.message };
+    console.log(`[PARTE] personal: fallo no bloqueante ${e.message}`);
   }
-  if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
-  const maquinas = await tildarMesActualYGrabar("maquinas");
+
+  let maquinas = { actualizados: 0, total: 0, ok: false, error: null };
+  try {
+    const selMaq = await seleccionarTipo("maquinas");
+    if (!selMaq.ok) {
+      console.log("[PARTE] Dropdown maquinas no encontrado");
+      return { personal, maquinas };
+    }
+    if (!selMaq.yaEstaba) await page.waitForTimeout(3000);
+    await clickBuscar();
+    maquinas = await tildarMesActualYGrabar("maquinas");
+  } catch (e) {
+    maquinas = { actualizados: 0, total: 0, ok: false, error: e.message };
+    console.log(`[PARTE] maquinas: fallo no bloqueante ${e.message}`);
+  }
 
   return { personal, maquinas };
 }
@@ -797,7 +997,7 @@ const _cerrarModalGenerar = async (frame) => {
 // Returns { tipo, nombreEnModal } or null if not found.
 export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
   const tag = `[SCRAPE-TIPO] "${nombreRequerido}"`;
-  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
   const buscado = norm(nombreRequerido);
 
   await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
@@ -805,12 +1005,12 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
 
   const btnGenerar = page.locator('input[type="button"], button').filter({ hasText: /^generar$/i }).last();
   if (!await btnGenerar.isVisible().catch(() => false)) {
-    console.log(`${tag} Botón Generar no encontrado`);
+    console.log(`${tag} BotÃ³n Generar no encontrado`);
     return null;
   }
   await btnGenerar.click();
 
-  // The modal opens inside an iframe — poll all frames until #cmbTipoRecurso appears
+  // The modal opens inside an iframe â€” poll all frames until #cmbTipoRecurso appears
   const mf = await _esperarFrameModal(page);
   if (!mf) {
     console.log(`${tag} Frame del modal no encontrado`);
@@ -852,7 +1052,7 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
         return sel && sel.options.length > 1;
       }, { timeout: 8000 });
     } catch {
-      console.log(`${tag} tipo="${tipoNorm}": cmbSobre no cargó`);
+      console.log(`${tag} tipo="${tipoNorm}": cmbSobre no cargÃ³`);
       continue;
     }
 
@@ -862,12 +1062,12 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
       return Array.from(sel.options).map(o => ({ value: o.value, text: (o.text || "").trim() }));
     });
 
-    console.log(`${tag} tipo="${tipoNorm}" → ${opciones.length} opciones: ${opciones.slice(0, 4).map(o => o.text).join(", ")}`);
+    console.log(`${tag} tipo="${tipoNorm}" â†’ ${opciones.length} opciones: ${opciones.slice(0, 4).map(o => o.text).join(", ")}`);
 
     const match = opciones.find(o => norm(o.text) === buscado);
 
     if (match) {
-      console.log(`${tag} ✅ tipo=${tipoNorm}, nombreEnModal="${match.text}"`);
+      console.log(`${tag} âœ… tipo=${tipoNorm}, nombreEnModal="${match.text}"`);
       await _cerrarModalGenerar(mf);
       await page.waitForTimeout(1000);
       return { tipo: tipoNorm, nombreEnModal: match.text };
@@ -883,7 +1083,7 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
 
   await _cerrarModalGenerar(mf);
   await page.waitForTimeout(1000);
-  console.log(`${tag} No encontrado en ningún tipo`);
+  console.log(`${tag} No encontrado en ningÃºn tipo`);
   return null;
 }
 
@@ -891,7 +1091,7 @@ export async function cdScrapearTipoRequerimiento(page, nombreRequerido) {
 // tipo: normalized name ("empresa" | "personal" | "maquinas")
 export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector = null) {
   const tag = `[GENERAR] "${nombreRequerido}" (${tipo})`;
-  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
   const buscado = norm(nombreRequerido);
 
   await page.goto(BANDEJA_URL, { waitUntil: "domcontentloaded" });
@@ -901,7 +1101,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
 
   const btnGenerar = page.locator('input[type="button"], button').filter({ hasText: /^generar$/i }).last();
   if (!await btnGenerar.isVisible().catch(() => false)) {
-    const err = new Error("Botón Generar no encontrado en el área de trabajo");
+    const err = new Error("BotÃ³n Generar no encontrado en el Ã¡rea de trabajo");
     err.screenshot = await capturar();
     throw err;
   }
@@ -910,7 +1110,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
   // Find the modal iframe
   const mf = await _esperarFrameModal(page);
   if (!mf) {
-    const err = new Error("Frame del modal Generar no apareció");
+    const err = new Error("Frame del modal Generar no apareciÃ³");
     err.screenshot = await capturar();
     throw err;
   }
@@ -918,7 +1118,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
 
   // Find tipo option value
   const tipoValue = await mf.evaluate((t) => {
-    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     const sel = document.getElementById("cmbTipoRecurso");
     if (!sel) return null;
     const opt = Array.from(sel.options).find(o => norm(o.text) === t);
@@ -931,7 +1131,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     throw err;
   }
 
-  // Select tipo → trigger setTipoRecurso → AJAX loads cmbSobre options
+  // Select tipo â†’ trigger setTipoRecurso â†’ AJAX loads cmbSobre options
   await mf.evaluate((v) => {
     const sel = document.getElementById("cmbTipoRecurso");
     sel.value = v;
@@ -947,7 +1147,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
 
   // Find the matching option value in cmbSobre
   const sobreOpt = await mf.evaluate((b) => {
-    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
+    const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/-\d{4}-\d+$/i, "").trim();
     const sel = document.getElementById("cmbSobre");
     if (!sel) return null;
     const exact = Array.from(sel.options).find(o => norm(o.text) === b);
@@ -960,8 +1160,8 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     throw err;
   }
 
-  // selectOption fires the DOM change event → setSobre sets hfSobre and loads entity list.
-  // No __doPostBack — the UpdatePanel refresh overwrites hfCodigoEstado0 with empty,
+  // selectOption fires the DOM change event â†’ setSobre sets hfSobre and loads entity list.
+  // No __doPostBack â€” the UpdatePanel refresh overwrites hfCodigoEstado0 with empty,
   // which breaks the SOAP call on the server side.
   await mf.locator('#cmbSobre').selectOption({ value: sobreOpt.value });
   console.log(`${tag} Sobre seleccionado: "${sobreOpt.text}"`);
@@ -1024,7 +1224,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     console.log(`${tag} "Todos" clickeado`);
     await page.waitForTimeout(800);
   } catch {
-    // No "Todos" link — empresa type with no entity list, proceed directly
+    // No "Todos" link â€” empresa type with no entity list, proceed directly
   }
 
   // Verificar checkboxes seleccionados antes de grabar
@@ -1059,7 +1259,7 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
     const result = typeof GrabarRequerimientos === "function"
       ? GrabarRequerimientos(btn)
       : null;
-    console.log("[CD-EVAL] GrabarRequerimientos retornó:", result, "alerta:", window.__cdAlert);
+    console.log("[CD-EVAL] GrabarRequerimientos retornÃ³:", result, "alerta:", window.__cdAlert);
 
     const hfSector = document.getElementById("hfSector") || document.getElementById("hfSectores");
     return {
@@ -1074,28 +1274,28 @@ export async function cdGenerarRequerimiento(page, tipo, nombreRequerido, sector
   const exito = grabarResult.result === true;
   console.log(`${tag} hfTipo=${grabarResult.hfTipo} hfSector=${grabarResult.hfSector}`);
   console.log(`${tag} grabarResult completo: ${JSON.stringify(grabarResult)}`);
-  console.log(`${tag} ${exito ? "✅" : "❌"} ${alerta || JSON.stringify(grabarResult)}`);
+  console.log(`${tag} ${exito ? "âœ…" : "âŒ"} ${alerta || JSON.stringify(grabarResult)}`);
 
   if (!exito) {
-    const err = new Error(alerta || "GrabarRequerimientos retornó false");
+    const err = new Error(alerta || "GrabarRequerimientos retornÃ³ false");
     err.screenshot = await capturar();
     throw err;
   }
 
-  // Esperar a que el postback/AJAX de generación complete (la página principal recarga)
-  console.log(`${tag} esperando recarga post-generación...`);
+  // Esperar a que el postback/AJAX de generaciÃ³n complete (la pÃ¡gina principal recarga)
+  console.log(`${tag} esperando recarga post-generaciÃ³n...`);
   try {
     await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 });
-    console.log(`${tag} página recargó: ${page.url().slice(0, 80)}`);
+    console.log(`${tag} pÃ¡gina recargÃ³: ${page.url().slice(0, 80)}`);
   } catch {
-    console.log(`${tag} sin navegación detectada, esperando 3s extra`);
+    console.log(`${tag} sin navegaciÃ³n detectada, esperando 3s extra`);
     await page.waitForTimeout(3000);
   }
   console.log(`${tag} URL final: ${page.url().slice(0, 80)}`);
   return { ok: true, mensaje: alerta };
 }
 
-// Lee vencimientos próximos de Vencimientos.aspx (Empresa + Personal + Máquinas + proveedor).
+// Lee vencimientos prÃ³ximos de Vencimientos.aspx (Empresa + Personal + MÃ¡quinas + proveedor).
 // diasPersonal, diasVehiculos y diasEmpresa controlan el umbral por tipo.
 // Devuelve [{ tipo: "empresa"|"personal"|"vehiculo"|"general", nombre, columna, fecha, diasFaltantes }]
 export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos = 10, diasEmpresa = 10) {
@@ -1103,7 +1303,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   await page.waitForTimeout(2000);
 
   const seleccionarTipo = (texto) => page.evaluate((t) => {
-    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+    function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); }
     const buscado = norm(t);
     const conocidos = ["personal", "maquinas", "empresa"];
     for (const sel of document.querySelectorAll("select")) {
@@ -1139,21 +1339,21 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     for (const t of document.querySelectorAll("table")) {
       if (t.querySelector("table")) continue;
       const ths = Array.from(t.querySelectorAll("th")).map(th => (th.textContent || "").trim().toLowerCase());
-      if (!ths.some(h => /^(nombre|descripci[oó]n)$/.test(h))) continue;
+      if (!ths.some(h => /^(nombre|descripci[oÃ³]n)$/.test(h))) continue;
       mejor = t; break;
     }
     if (!mejor) return { items: [], totalConFecha: 0 };
     const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
     const idxEstado = headers.findIndex(h => /^estado/i.test(h));
-    const idxNombre = headers.findIndex(h => /^(nombre|descripci[oó]n)/i.test(h));
-    const idxPatente = tipo === "vehiculo" ? headers.findIndex(h => /^(patente|dominio|placa|matr[ií]cula)/i.test(h)) : -1;
+    const idxNombre = headers.findIndex(h => /^(nombre|descripci[oÃ³]n)/i.test(h));
+    const idxPatente = tipo === "vehiculo" ? headers.findIndex(h => /^(patente|dominio|placa|matr[iÃ­]cula)/i.test(h)) : -1;
     let totalConFecha = 0; const items = [];
     for (const tr of mejor.querySelectorAll("tr")) {
       const tds = Array.from(tr.querySelectorAll("td")); if (!tds.length) continue;
       if (idxEstado >= 0 && tds[idxEstado] && /inhabilit/i.test(tds[idxEstado].textContent)) continue;
       let nombre = idxNombre >= 0 && tds[idxNombre] ? (tds[idxNombre].textContent || "").trim() : "";
       if (!nombre) continue;
-      if (idxPatente >= 0 && tds[idxPatente]) { const p = (tds[idxPatente].textContent || "").trim(); if (p) nombre = `${p} — ${nombre}`; }
+      if (idxPatente >= 0 && tds[idxPatente]) { const p = (tds[idxPatente].textContent || "").trim(); if (p) nombre = `${p} â€” ${nombre}`; }
       for (let i = 0; i < tds.length; i++) {
         const f = parseFecha(tds[i].textContent); if (!f) continue;
         totalConFecha++;
@@ -1179,7 +1379,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       if (t.querySelector("table")) continue;
       const ths = Array.from(t.querySelectorAll("th")); if (!ths.length) continue;
       const headerTxts = ths.map(th => (th.textContent || "").trim().toLowerCase());
-      if (headerTxts.some(h => /^(nombre|descripci[oó]n)$/.test(h))) continue;
+      if (headerTxts.some(h => /^(nombre|descripci[oÃ³]n)$/.test(h))) continue;
       let n = 0; for (const td of t.querySelectorAll("td")) if (parseFecha(td.textContent)) n++;
       if (n > maxF) { maxF = n; mejor = t; }
     }
@@ -1233,21 +1433,21 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     const ssEmp = await capturar();
     if (ssEmp) screenshots.push({ buffer: ssEmp, nombre: "empresa.jpg" });
   } else {
-    console.warn("[VENC] No se encontró opción empresa en el dropdown.");
+    console.warn("[VENC] No se encontrÃ³ opciÃ³n empresa en el dropdown.");
   }
 
-  // Vehículos
+  // VehÃ­culos
   const selMaq = await seleccionarTipo("maquinas");
   if (selMaq.ok) {
     if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
     await clickBuscar();
     const { items: itemsMaq } = await leerTabla("vehiculo", diasVehiculos);
     todosItems.push(...itemsMaq);
-    console.log(`[VENC] Vehículos: ${itemsMaq.length} items`);
+    console.log(`[VENC] VehÃ­culos: ${itemsMaq.length} items`);
     const ssMaq = await capturar();
     if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
   } else {
-    console.warn("[VENC] No se encontró opción maquinas en el dropdown.");
+    console.warn("[VENC] No se encontrÃ³ opciÃ³n maquinas en el dropdown.");
   }
 
   return { items: todosItems, screenshots };
