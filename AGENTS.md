@@ -169,13 +169,18 @@ Cada archivo en `mapeos/{chatId}/` representa UN tipo de documento (ej: "Recibo 
 - `cdLeerRequerimientos(page)` — para /trabajar y /unico: lee filas filtrando "Sobres activos", extrae entidades por columna "Recurso".
 
 ### cdLeerVencimientos — lectura de Vencimientos.aspx
-`cdLeerVencimientos(page, diasPersonal, diasVehiculos)` — para /vencimientos:
+`cdLeerVencimientos(page, diasPersonal, diasVehiculos, diasEmpresa)` — para /vencimientos:
 - URL: `Vencimientos.aspx?menu=11`
-- Selecciona "personal" en el dropdown (el que tiene Personal + Maquinas), hace Buscar, lee tabla con umbral `diasPersonal`. Lee también la tabla resumen del proveedor (umbral = max de ambos).
-- Selecciona "maquinas", hace Buscar, lee tabla con umbral `diasVehiculos`.
+- Selecciona "personal" en el dropdown (el que tiene Personal + Maquinas), hace Buscar y reintenta si la primera carga devuelve tablas vacías.
+- En esa misma vista lee 3 cosas distintas:
+  - `personal`: la tabla grande filtrada por `diasPersonal`
+  - `empresa`: la tabla chica superior con columnas como `Inscrip ARCA`, filtrada por `diasEmpresa`
+  - `general`: el texto/resumen `Documentación vigente hasta ...`, usando umbral `max(diasPersonal, diasVehiculos)`
+- Selecciona "maquinas", hace Buscar y lee la tabla grande con umbral `diasVehiculos`.
+- No existe opción `empresa` en el selector: la empresa siempre sale en la tabla resumen de la vista actual.
 - Toma screenshot JPEG después de cada búsqueda (fullPage).
-- Devuelve `{ items: [{ tipo, nombre, columna, fecha, diasFaltantes }], screenshots: [{ buffer, nombre }] }`.
-- `diasPersonal` y `diasVehiculos` vienen de `cliente.diasPersonal` / `cliente.diasVehiculos` (defaults 7 y 15 en clientes.js).
+- Devuelve `{ items: [{ tipo, nombre, columna, fecha, diasFaltantes }], screenshots: [{ buffer, nombre }], debugPorTipo }`.
+- `diasPersonal`, `diasVehiculos` y `diasEmpresa` vienen de `cliente.diasPersonal` / `cliente.diasVehiculos` / `cliente.diasEmpresa`.
 
 ### cdGrabarParteMensual — lectura/escritura de ParteMensual.aspx
 `cdGrabarParteMensual(page)` — para `/partemes` manual y el cron del día 1:

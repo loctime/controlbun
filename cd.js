@@ -1320,11 +1320,124 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     return { ok: false };
   }, texto);
 
-  const clickBuscar = async () => {
-    const btn = page.locator('input[type="submit"], input[type="button"], button').filter({ hasText: /buscar|consultar/i }).first();
-    if (await btn.count() > 0 && await btn.isVisible().catch(() => false)) await btn.click();
-    await page.waitForTimeout(5000);
+  const statsTablasVisibles = () => page.evaluate(() => {
+    function parseFecha(t) {
+      const m = String(t || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+      if (!m) return null;
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      const f = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+      return isNaN(f.getTime()) ? null : f;
+    }
+
+    let visibles = 0;
+    let conHeaders = 0;
+    let conFechas = 0;
+    let totalTds = 0;
+    for (const t of document.querySelectorAll("table")) {
+      if (t.querySelector("table")) continue;
+      if (t.offsetParent === null) continue;
+      visibles++;
+      const ths = t.querySelectorAll("th").length;
+      const tds = t.querySelectorAll("td");
+      totalTds += tds.length;
+      if (ths > 0) conHeaders++;
+      let fechas = 0;
+      for (const td of tds) {
+        if (parseFecha(td.textContent)) fechas++;
+      }
+      if (fechas > 0) conFechas++;
+    }
+    return { visibles, conHeaders, conFechas, totalTds };
+  });
+
+  const esperarTablasCargadas = async (label, timeoutMs = 12000) => {
+    try {
+      await page.waitForFunction(() => {
+        function parseFecha(t) {
+          const m = String(t || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+          if (!m) return null;
+          let y = parseInt(m[3], 10);
+          if (y < 100) y += 2000;
+          const f = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+          return isNaN(f.getTime()) ? null : f;
+        }
+
+        let conHeaders = 0;
+        let conFechas = 0;
+        let totalTds = 0;
+        for (const t of document.querySelectorAll("table")) {
+          if (t.querySelector("table")) continue;
+          if (t.offsetParent === null) continue;
+          const ths = t.querySelectorAll("th").length;
+          const tds = t.querySelectorAll("td");
+          totalTds += tds.length;
+          if (ths > 0) conHeaders++;
+          for (const td of tds) {
+            if (parseFecha(td.textContent)) {
+              conFechas++;
+              break;
+            }
+          }
+        }
+        return conFechas > 0 || conHeaders > 0 || totalTds >= 8;
+      }, null, { timeout: timeoutMs });
+    } catch {}
+
+    const stats = await statsTablasVisibles().catch(() => null);
+    if (stats) {
+      console.log(
+        `[VENC] ${label}: tablas visibles=${stats.visibles} headers=${stats.conHeaders} fechas=${stats.conFechas} celdas=${stats.totalTds}`
+      );
+    }
   };
+
+  const clickBuscar = async () => {
+    const clicked = await page.evaluate(() => {
+      function norm(s) {
+        return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      }
+      for (const el of document.querySelectorAll('input[type="submit"], input[type="button"], button')) {
+        const txt = norm(el.textContent || el.value || el.getAttribute("title") || el.id || "");
+        if (!/(buscar|consultar)/.test(txt)) continue;
+        if (el.disabled) continue;
+        el.click();
+        return txt || true;
+      }
+      return null;
+    });
+    if (!clicked) return;
+    await page.waitForTimeout(1500);
+    await esperarTablasCargadas("post-buscar");
+  };
+
+  const debugTablasVisibles = (label) => page.evaluate((lbl) => {
+    function norm(s) {
+      return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    }
+    function parseFecha(t) {
+      const m = String(t || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+      if (!m) return null;
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      const f = new Date(y, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+      return isNaN(f.getTime()) ? null : f;
+    }
+
+    const tablas = [];
+    let idx = 0;
+    for (const t of document.querySelectorAll("table")) {
+      if (t.querySelector("table")) continue;
+      if (t.offsetParent === null) continue;
+      const headers = Array.from(t.querySelectorAll("th")).map(th => norm(th.textContent)).filter(Boolean);
+      let fechas = 0;
+      for (const td of t.querySelectorAll("td")) {
+        if (parseFecha(td.textContent)) fechas++;
+      }
+      tablas.push({ idx: idx++, headers, fechas });
+    }
+    return { label: lbl, tablas };
+  }, label);
 
   const leerTabla = (tipoParam, umbralParam) => page.evaluate(([tipo, umbral]) => {
     function norm(s) {
@@ -1367,6 +1480,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       : -1;
 
     let totalConFecha = 0;
+    let masCercano = null;
     const items = [];
     for (const tr of mejor.querySelectorAll("tr")) {
       const tds = Array.from(tr.querySelectorAll("td"));
@@ -1387,15 +1501,18 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         const col = (headers[i] || "").trim();
         if (/^estado/i.test(col)) continue;
         const dias = Math.round((f - hoy) / 864e5);
+        if (!masCercano || dias < masCercano.diasFaltantes) {
+          masCercano = { tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias };
+        }
         if (dias > umbral) continue;
         items.push({ tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
       }
     }
 
-    return { items, totalConFecha };
+    return { items, totalConFecha, masCercano };
   }, [tipoParam, umbralParam]);
 
-  const leerGeneral = (umbral) => page.evaluate((u) => {
+  const leerResumenProveedor = (umbralGeneral, umbralEmpresa) => page.evaluate(([uGeneral, uEmpresa]) => {
     function norm(s) {
       return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     }
@@ -1410,15 +1527,51 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
+    const resultado = {
+      generalItems: [],
+      empresaItems: [],
+      totalGeneral: 0,
+      totalEmpresa: 0,
+      masCercanoGeneral: null,
+      masCercanoEmpresa: null,
+    };
+
+    const bodyText = document.body?.innerText || "";
+    const matchGeneral = bodyText.match(/documentaci[oó]n\s+vigente\s+hasta\s+el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (matchGeneral) {
+      const fechaTxt = matchGeneral[1];
+      const f = parseFecha(fechaTxt);
+      if (f) {
+        const dias = Math.round((f - hoy) / 864e5);
+        resultado.totalGeneral = 1;
+        resultado.masCercanoGeneral = {
+          tipo: "general",
+          nombre: "Proveedor",
+          columna: "Documentacion vigente",
+          fecha: fechaTxt,
+          diasFaltantes: dias,
+        };
+        if (dias <= uGeneral) {
+          resultado.generalItems.push({
+            tipo: "general",
+            nombre: "Proveedor",
+            columna: "Documentacion vigente",
+            fecha: fechaTxt,
+            diasFaltantes: dias,
+          });
+        }
+      }
+    }
+
     let mejor = null;
-    let maxF = 0;
+    let maxF = -1;
     for (const t of document.querySelectorAll("table")) {
       if (t.querySelector("table")) continue;
       if (t.offsetParent === null) continue;
       const ths = Array.from(t.querySelectorAll("th"));
       if (!ths.length) continue;
       const headerTxts = ths.map(th => norm(th.textContent));
-      if (headerTxts.some(h => /^(nombre|descripcion)$/.test(h))) continue;
+      if (headerTxts.some(h => /^(nombre|descripcion|codigo)$/.test(h))) continue;
       let n = 0;
       for (const td of t.querySelectorAll("td")) {
         if (parseFecha(td.textContent)) n++;
@@ -1429,65 +1582,110 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       }
     }
 
-    if (!mejor) return { items: [], totalConFecha: 0 };
+    if (!mejor) return resultado;
     const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
-    const items = [];
-    let totalConFecha = 0;
     for (const tr of mejor.querySelectorAll("tr")) {
       const tds = Array.from(tr.querySelectorAll("td"));
       if (!tds.length) continue;
       for (let i = 0; i < tds.length; i++) {
         const f = parseFecha(tds[i].textContent);
         if (!f) continue;
-        totalConFecha++;
+        resultado.totalEmpresa++;
         const col = (headers[i] || "").trim();
         const dias = Math.round((f - hoy) / 864e5);
-        if (dias > u) continue;
-        items.push({ tipo: "general", nombre: "Proveedor", columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
+        if (!resultado.masCercanoEmpresa || dias < resultado.masCercanoEmpresa.diasFaltantes) {
+          resultado.masCercanoEmpresa = {
+            tipo: "empresa",
+            nombre: "Proveedor",
+            columna: col,
+            fecha: (tds[i].textContent || "").trim(),
+            diasFaltantes: dias,
+          };
+        }
+        if (dias > uEmpresa) continue;
+        resultado.empresaItems.push({
+          tipo: "empresa",
+          nombre: "Proveedor",
+          columna: col,
+          fecha: (tds[i].textContent || "").trim(),
+          diasFaltantes: dias,
+        });
       }
     }
-    return { items, totalConFecha };
-  }, umbral);
+    return resultado;
+  }, [umbralGeneral, umbralEmpresa]);
 
   const umbralMax = Math.max(diasPersonal, diasVehiculos);
   const todosItems = [];
   const screenshots = [];
+  const debugPorTipo = { general: null, empresa: null, personal: null, vehiculo: null };
 
   const capturar = () => page.screenshot({ type: "jpeg", quality: 80, fullPage: true }).catch(() => null);
+
+  const reintentarLectura = async (label, reader, attempts = 3) => {
+    let ultimo = await reader();
+    for (let intento = 2; intento <= attempts && ultimo.totalConFecha === 0; intento++) {
+      console.log(`[VENC] ${label}: reintento ${intento}/${attempts} tras 0 fechas detectadas`);
+      await clickBuscar();
+      await page.waitForTimeout(2000 * (intento - 1));
+      ultimo = await reader();
+    }
+    return ultimo;
+  };
 
   const selPers = await seleccionarTipo("personal");
   if (selPers.ok && !selPers.yaEstaba) await page.waitForTimeout(5000);
   await clickBuscar();
-  const { items: itemsPers, totalConFecha: totalPers } = await leerTabla("personal", diasPersonal);
+  const { items: itemsPers, totalConFecha: totalPers, masCercano: masCercanoPers } =
+    await reintentarLectura("Personal", () => leerTabla("personal", diasPersonal));
   todosItems.push(...itemsPers);
+  if (masCercanoPers) debugPorTipo.personal = masCercanoPers;
   console.log(`[VENC] Personal: ${itemsPers.length} items (${totalPers} fechas detectadas)`);
+  if (totalPers === 0) {
+    const dbg = await debugTablasVisibles("personal");
+    for (const t of dbg.tablas) {
+      console.log(`[VENC][DBG][${dbg.label}] tabla ${t.idx}: fechas=${t.fechas} headers=${t.headers.join(" | ")}`);
+    }
+  }
 
-  const { items: itemsGen, totalConFecha: totalGen } = await leerGeneral(umbralMax);
+  const {
+    generalItems: itemsGen,
+    empresaItems: itemsEmp,
+    totalGeneral: totalGen,
+    totalEmpresa: totalEmp,
+    masCercanoGeneral: masCercanoGen,
+    masCercanoEmpresa: masCercanoEmp,
+  } = await leerResumenProveedor(umbralMax, diasEmpresa);
   todosItems.push(...itemsGen);
+  todosItems.push(...itemsEmp);
+  if (masCercanoGen) debugPorTipo.general = masCercanoGen;
+  if (masCercanoEmp) debugPorTipo.empresa = masCercanoEmp;
   console.log(`[VENC] General: ${itemsGen.length} items (${totalGen} fechas detectadas)`);
+  if (totalGen === 0) {
+    const dbg = await debugTablasVisibles("general");
+    for (const t of dbg.tablas) {
+      console.log(`[VENC][DBG][${dbg.label}] tabla ${t.idx}: fechas=${t.fechas} headers=${t.headers.join(" | ")}`);
+    }
+  }
+  console.log(`[VENC] Empresa: ${itemsEmp.length} items (${totalEmp} fechas detectadas)`);
+  if (totalEmp === 0) {
+    const dbg = await debugTablasVisibles("empresa");
+    for (const t of dbg.tablas) {
+      console.log(`[VENC][DBG][${dbg.label}] tabla ${t.idx}: fechas=${t.fechas} headers=${t.headers.join(" | ")}`);
+    }
+  }
 
   const ssPersonal = await capturar();
   if (ssPersonal) screenshots.push({ buffer: ssPersonal, nombre: "personal.jpg" });
-
-  const selEmp = await seleccionarTipo("empresa");
-  if (selEmp.ok) {
-    if (!selEmp.yaEstaba) await page.waitForTimeout(5000);
-    await clickBuscar();
-    const { items: itemsEmp, totalConFecha: totalEmp } = await leerTabla("empresa", diasEmpresa);
-    todosItems.push(...itemsEmp);
-    console.log(`[VENC] Empresa: ${itemsEmp.length} items (${totalEmp} fechas detectadas)`);
-    const ssEmp = await capturar();
-    if (ssEmp) screenshots.push({ buffer: ssEmp, nombre: "empresa.jpg" });
-  } else {
-    console.warn("[VENC] No se encontro opcion empresa en el dropdown.");
-  }
 
   const selMaq = await seleccionarTipo("maquinas");
   if (selMaq.ok) {
     if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
     await clickBuscar();
-    const { items: itemsMaq, totalConFecha: totalMaq } = await leerTabla("vehiculo", diasVehiculos);
+    const { items: itemsMaq, totalConFecha: totalMaq, masCercano: masCercanoMaq } =
+      await reintentarLectura("Vehiculos", () => leerTabla("vehiculo", diasVehiculos));
     todosItems.push(...itemsMaq);
+    if (masCercanoMaq) debugPorTipo.vehiculo = masCercanoMaq;
     console.log(`[VENC] Vehiculos: ${itemsMaq.length} items (${totalMaq} fechas detectadas)`);
     const ssMaq = await capturar();
     if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
@@ -1495,5 +1693,9 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     console.warn("[VENC] No se encontro opcion maquinas en el dropdown.");
   }
 
-  return { items: todosItems, screenshots };
+  for (const [tipo, item] of Object.entries(debugPorTipo)) {
+    if (item) console.log(`[VENC] Debug ${tipo}: ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
+  }
+
+  return { items: todosItems, screenshots, debugPorTipo };
 }
