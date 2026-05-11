@@ -442,6 +442,16 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
       console.log(`[MATCH] Grupo "${g.entidad}": ${omitidos.map((r) => r.nombre).join(", ")} omitidos (período anterior)`);
     }
 
+    // Si el grupo no tiene entidad pero los reqs tienen entidades distintas → ambiguo, no subir a todos
+    if (!g.entidad) {
+      const entidades = [...new Set(reqsFinal.map(r => normEnt(r.entidad || "")))].filter(Boolean);
+      if (entidades.length > 1) {
+        console.log(`[MATCH] Grupo "" (${tipoBase}): entidad ambigua (${entidades.join(", ")}) → sinAsignar`);
+        sinAsignarExtra.push(...g.paginas);
+        continue;
+      }
+    }
+
     grupos.push({ entidad: String(g.entidad || ""), paginas: g.paginas, reqs: reqsFinal, omitidos });
   }
 
@@ -482,6 +492,16 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
       continue;
     }
 
+    // Si los reqs tienen múltiples entidades distintas no vacías, es un tipo personal/vehículo,
+    // no un doc de empresa — no podemos asignar sin saber a quién pertenece.
+    const normE = (s) => String(s || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
+    const entidadesDist = [...new Set(reqsMatch.map(r => normE(r.entidad)))].filter(Boolean);
+    if (entidadesDist.length > 1) {
+      console.log(`[MATCH] Empresa tipo "${tipoBase}": reqs tienen entidades distintas (${entidadesDist.join(", ")}) → sinAsignar (no se puede determinar a quién pertenece)`);
+      sinAsignar.push(...paginas);
+      continue;
+    }
+
     // Deduplicar por período
     const reqLatest = new Map();
     const omitidos = [];
@@ -500,12 +520,23 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   }
 
   // Rescatar sinRequerido donde la entidad del doc no coincide con la de CD (ej: dueño vs patente).
-  // Si existen reqs pendientes que coincidan por tipo de nombre, se asignan directamente.
+  // Solo rescata cuando hay exactamente UNA entidad única en los reqs que coinciden por tipo —
+  // si hay múltiples entidades distintas (ej: varios empleados), no se puede determinar a cuál pertenece.
   const sinRequeridoFinal = [];
   const parsePer = (n) => { const m = String(n||"").match(/-(\d{4})-(\d+)$/i); return m ? [parseInt(m[1]),parseInt(m[2])] : [0,0]; };
+  const normEnt2 = (s) => String(s || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
   for (const item of sinRequeridoItems) {
     const reqsMatch = reqsPendientes.filter(r => baseNombre(r.nombre) === item.tipo);
     if (!reqsMatch.length) { sinRequeridoFinal.push(item); continue; }
+
+    // Si los reqs tienen múltiples entidades distintas, no podemos saber a cuál pertenece el doc
+    const entidadesDistintas = [...new Set(reqsMatch.map(r => normEnt2(r.entidad)))].filter(Boolean);
+    if (entidadesDistintas.length > 1) {
+      console.log(`[MATCH] Rescue "${item.entidad}" (${item.tipo}): múltiples entidades en CD (${entidadesDistintas.join(", ")}) → sinAsignar`);
+      sinAsignar.push(...item.paginas);
+      continue;
+    }
+
     const reqLatest = new Map();
     const omitidos = [];
     for (const r of reqsMatch) {
@@ -522,7 +553,7 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   }
 
   const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
-  if (grupos.length || sinRequeridoFinal.length) {
+  if (grupos.length || sinRequeridoFinal.length || sinAsignar.length) {
     return { grupos, sinAsignar, sinRequerido: sinRequeridoFinal, paginasClasificadas };
   }
   return null;

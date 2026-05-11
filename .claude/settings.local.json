@@ -7,7 +7,12 @@
       "Bash(timeout 8 node bot.js)",
       "Bash(node -e ' *)",
       "Bash(timeout 12 node bot.js)",
-      "PowerShell(Get-NetTCPConnection *)"
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(python3 *)",
+      "Bash(pip install *)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\User\\\\Desktop\\\\Proyectos\\\\controlBun\\\\fix_encoding_test.py\", \"C:\\\\Users\\\\User\\\\Desktop\\\\Proyectos\\\\controlBun\\\\fix_result.txt\", \"C:\\\\Users\\\\User\\\\Desktop\\\\Proyectos\\\\controlBun\\\\bot.js.bak\" -ErrorAction SilentlyContinue)",
+      "Bash(Write-Host \"Limpio\")",
+      "PowerShell(Remove-Item *)"
     ]
   }
 }

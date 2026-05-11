@@ -13,7 +13,7 @@ import { startTunnel } from "./tunnel.js";
 const bot = new Bot(process.env.TG_TOKEN);
 const ADMIN_IDS = (process.env.ADMIN_CHAT_ID || "").split(",").map(s => s.trim()).filter(Boolean);
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Estado de sesiÃƒÂ³n por usuario (en memoria) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Estado de sesión por usuario (en memoria) ───────────────────────────────
 
 const sesiones = new Map();
 const esperandoCodigo = new Set();
@@ -31,7 +31,7 @@ function resetSesion(chatId) {
   sesiones.set(chatId, { fase: "idle" });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const MAX_REQS_VISIBLE = 20;
 
@@ -39,7 +39,7 @@ function formatearReqs(reqs, { mostrarTodos = false } = {}) {
   const visibles = mostrarTodos ? reqs : reqs.slice(0, MAX_REQS_VISIBLE);
   const resto = reqs.length - visibles.length;
   const lineas = visibles.map((r, i) => {
-    const entidad = r.entidad ? ` Ã¢â‚¬â€ <i>${escapeHtml(r.entidad)}</i>` : "";
+    const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
     return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
   });
   if (resto > 0) lineas.push(`\n<i>... y ${resto} más. Escribí parte del nombre para filtrar.</i>`);
@@ -50,27 +50,27 @@ function escapeHtml(s) {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Quita el sufijo de perÃƒÂ­odo "-2026-4" para comparar tipos de documentos
+// Quita el sufijo de período "-2026-4" para comparar tipos de documentos
 const baseNombreReq = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
 
 async function continuarAprendiendoDesdeConflicto(ctx, chatId) {
   const sesion = getSesion(chatId);
   const { pendingGrupos, pendingPaginasSinAsignar, pendingNombresReqs, pendingGrupoActual } = sesion;
   setSesion(chatId, { grupos: pendingGrupos, paginasSinAsignar: pendingPaginasSinAsignar, grupoActual: null, fase: "aprender_agrupando" });
-  const confirmacion = `Ã¢Å“â€¦ ${pendingNombresReqs} = pÃƒÂ¡ginas ${pendingGrupoActual.paginas.join(", ")}\n\n`;
+  const confirmacion = `✅ ${pendingNombresReqs} = páginas ${pendingGrupoActual.paginas.join(", ")}\n\n`;
 
   if (!pendingPaginasSinAsignar.size) {
     const asignados = await guardarSesionMapeo(chatId);
-    const resumen = asignados.map((g) => `Ã¢â‚¬Â¢ <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} Ã¢â€ â€™ ${g.paginas.length} pÃƒÂ¡g.`).join("\n");
+    const resumen = asignados.map((g) => `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`).join("\n");
     setSesion(chatId, { fase: "aprender_preguntando_mas", grupos: [], imagenes: [], paginasSinAsignar: new Set() });
-    return ctx.reply(confirmacion + `Todas las pÃƒÂ¡ginas mapeadas. Mapeo guardado:\n\n${resumen}\n\nÃ‚Â¿QuerÃƒÂ©s mapear otro documento? Mandame el PDF o escribÃƒÂ­ <b>no</b> para terminar.`, { parse_mode: "HTML" });
+    return ctx.reply(confirmacion + `Todas las páginas mapeadas. Mapeo guardado:\n\n${resumen}\n\n¿Querés mapear otro documento? Mandame el PDF o escribí <b>no</b> para terminar.`, { parse_mode: "HTML" });
   }
 
   if (pendingPaginasSinAsignar.size === 1) {
     const [solaUnica] = pendingPaginasSinAsignar;
     setSesion(chatId, { grupoActual: { paginas: [solaUnica] }, fase: "aprender_asignando", filtroActual: null });
     return ctx.reply(
-      confirmacion + `Solo queda la pÃƒÂ¡gina <b>${solaUnica}</b>. Ã‚Â¿A quÃƒÂ© requerimiento corresponde?\n\nEscribÃƒÂ­ parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`,
+      confirmacion + `Solo queda la página <b>${solaUnica}</b>. ¿A qué requerimiento corresponde?\n\nEscribí parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`,
       { parse_mode: "HTML" }
     );
   }
@@ -82,12 +82,12 @@ async function mostrarListaMapeos(ctx, chatId, prefijo = "") {
   const lista = await leerTodosMapeosPorTipo(chatId);
   if (!lista.length) {
     resetSesion(chatId);
-    return ctx.reply(prefijo + "No quedan mapeos guardados. UsÃƒÂ¡ /aprender para crear nuevos.", { parse_mode: "HTML" });
+    return ctx.reply(prefijo + "No quedan mapeos guardados. Usá /aprender para crear nuevos.", { parse_mode: "HTML" });
   }
   setSesion(chatId, { fase: "mapeos_lista", mapeosList: lista });
-  const items = lista.map((m, i) => `${i + 1}. ${escapeHtml(m.nombre)} Ã¢â‚¬â€ ${m.paginas.length} pÃƒÂ¡g.`).join("\n");
+  const items = lista.map((m, i) => `${i + 1}. ${escapeHtml(m.nombre)} — ${m.paginas.length} pág.`).join("\n");
   return ctx.reply(
-    prefijo + `Ã°Å¸â€œÅ¡ <b>${lista.length} tipo${lista.length !== 1 ? "s" : ""} aprendido${lista.length !== 1 ? "s" : ""}:</b>\n\n${items}\n\nEscribÃƒÂ­ el nÃƒÂºmero del que querÃƒÂ©s revisar, o cualquier comando para salir.`,
+    prefijo + `📚 <b>${lista.length} tipo${lista.length !== 1 ? "s" : ""} aprendido${lista.length !== 1 ? "s" : ""}:</b>\n\n${items}\n\nEscribí el número del que querés revisar, o cualquier comando para salir.`,
     { parse_mode: "HTML" }
   );
 }
@@ -95,10 +95,10 @@ async function mostrarListaMapeos(ctx, chatId, prefijo = "") {
 function msgAgrupar(paginasDisponibles) {
   const lista = [...paginasDisponibles];
   const disponibles = lista.join(", ");
-  const ejAgrupar = lista.length >= 2 ? `<code>${lista.slice(0, 2).join(",")}</code> para agrupar Ã‚Â· ` : "";
+  const ejAgrupar = lista.length >= 2 ? `<code>${lista.slice(0, 2).join(",")}</code> para agrupar · ` : "";
   return (
-    `PÃƒÂ¡ginas disponibles: <b>${disponibles}</b>\n\n` +
-    `AgrupÃƒÂ¡ pÃƒÂ¡ginas para asignarle un requerimiento, o elegÃƒÂ­ una sola.\n` +
+    `Páginas disponibles: <b>${disponibles}</b>\n\n` +
+    `Agrupá páginas para asignarle un requerimiento, o elegí una sola.\n` +
     `ej: ${ejAgrupar}<code>${lista[0]}</code> para elegir sola.\n\n` +
     `/listo para finalizar el mapeo.`
   );
@@ -132,7 +132,7 @@ async function guardarSesionMapeo(chatId) {
   return asignados;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Comandos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Comandos ─────────────────────────────────────────────────────────────────
 
 bot.command("miid", (ctx) =>
   ctx.reply(`Tu chat ID es: <code>${ctx.chat.id}</code>`, { parse_mode: "HTML" })
@@ -145,7 +145,7 @@ bot.command("web", async (ctx) => {
   const token = generarTokenWeb(chatId);
   const webUrl = process.env.WEB_URL || "https://mapeos.controldoc.app";
   return ctx.reply(
-    `Ã°Å¸Å’Â <b>Panel de mapeos</b>\n\nHacÃƒÂ© click en el link para acceder desde tu computadora:\n<a href="${webUrl}/auth?t=${token}">${webUrl}</a>\n\nÃ¢ÂÂ± El link expira en 10 minutos.`,
+    `🌐 <b>Panel de mapeos</b>\n\nHacé click en el link para acceder desde tu computadora:\n<a href="${webUrl}/auth?t=${token}">${webUrl}</a>\n\n⏱ El link expira en 10 minutos.`,
     { parse_mode: "HTML", link_preview_options: { is_disabled: true } }
   );
 });
@@ -154,17 +154,17 @@ bot.command("modelo", async (ctx) => {
   if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
   const arg = ctx.match?.trim().toLowerCase();
   if (!arg) {
-    return ctx.reply(`Ã°Å¸Â¤â€“ Modelo actual: <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+    return ctx.reply(`🤖 Modelo actual: <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
   }
   if (arg === "gemini") {
     setAiProvider("gemini");
-    return ctx.reply(`Ã¢Å“â€¦ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+    return ctx.reply(`✅ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
   }
   if (arg === "claude" || arg === "haiku") {
     setAiProvider("claude");
-    return ctx.reply(`Ã¢Å“â€¦ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
+    return ctx.reply(`✅ Cambiado a <b>${getCurrentProviderLabel()}</b>`, { parse_mode: "HTML" });
   }
-  return ctx.reply("Ã¢ÂÅ’ Opciones: <code>/modelo claude</code> o <code>/modelo gemini</code>", { parse_mode: "HTML" });
+  return ctx.reply("❌ Opciones: <code>/modelo claude</code> o <code>/modelo gemini</code>", { parse_mode: "HTML" });
 });
 
 bot.command("nuevocliente", async (ctx) => {
@@ -173,7 +173,7 @@ bot.command("nuevocliente", async (ctx) => {
   if (!match) return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
   const nombre = match[1].replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
   await guardarPendiente(match[2].trim(), nombre);
-  return ctx.reply(`Ã¢Å“â€¦ CÃƒÂ³digo <code>${match[2]}</code> listo para <b>${nombre}</b>.`, { parse_mode: "HTML" });
+  return ctx.reply(`✅ Código <code>${match[2]}</code> listo para <b>${nombre}</b>.`, { parse_mode: "HTML" });
 });
 
 bot.command("config", async (ctx) => {
@@ -182,7 +182,7 @@ bot.command("config", async (ctx) => {
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   setSesion(chatId, { fase: "config_esperando_user" });
   return ctx.reply(
-    "Ã¢Å¡â„¢Ã¯Â¸Â ConfiguraciÃƒÂ³n de cuenta de controldocumentario.com\n\nMandame tu <b>usuario de control documentario</b> (email):",
+    "⚙️ Configuración de cuenta de controldocumentario.com\n\nMandame tu <b>usuario de control documentario</b> (email):",
     { parse_mode: "HTML" }
   );
 });
@@ -192,35 +192,35 @@ bot.command("pendientes", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s cuenta configuradas. UsÃƒÂ¡ /config primero.");
+    return ctx.reply("❌ No tenés cuenta configuradas. Usá /config primero.");
 
-  await ctx.reply("Ã¢ÂÂ³ Consultando requerimientos pendientesÃ¢â‚¬Â¦");
+  await ctx.reply("⏳ Consultando requerimientos pendientes…");
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
     if (!sesCD.ok) {
       if (sesCD.screenshot) {
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
       }
-      return ctx.reply(`Ã¢ÂÅ’ ${sesCD.motivo}`);
+      return ctx.reply(`❌ ${sesCD.motivo}`);
     }
 
     const reqs = await cdLeerRequerimientos(sesCD.page);
     if (!reqs.length)
-      return ctx.reply("Ã¢Å“â€¦ No hay requerimientos pendientes en CD.");
+      return ctx.reply("✅ No hay requerimientos pendientes en CD.");
 
     const lineas = reqs.map((r, i) => {
-      const entidad = r.entidad ? ` Ã¢â‚¬â€ <i>${escapeHtml(r.entidad)}</i>` : "";
+      const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
       return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
     });
 
     return ctx.reply(
-      `Ã°Å¸â€œâ€¹ <b>${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}`,
+      `📋 <b>${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}`,
       { parse_mode: "HTML" }
     );
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[PENDIENTES]", e.message);
-    return ctx.reply(`Ã¢ÂÅ’ Error: ${e.message}`);
+    return ctx.reply(`❌ Error: ${e.message}`);
   }
 });
 
@@ -229,19 +229,19 @@ bot.command("vencimientos", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s credenciales configuradas. UsÃƒÂ¡ /config primero.");
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
 
   const diasP = cliente.diasPersonal ?? 10;
   const diasV = cliente.diasVehiculos ?? 10;
   const diasE = cliente.diasEmpresa ?? 10;
-  await ctx.reply(`Ã°Å¸â€Å½ Consultando vencimientos (empresa: ${diasE}d Ã‚Â· personal: ${diasP}d Ã‚Â· vehÃƒÂ­culos: ${diasV}d)Ã¢â‚¬Â¦`);
+  await ctx.reply(`🔎 Consultando vencimientos (empresa: ${diasE}d · personal: ${diasP}d · vehículos: ${diasV}d)…`);
 
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
     if (!sesCD.ok) {
       if (sesCD.screenshot)
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
-      return ctx.reply(`Ã¢ÂÅ’ ${sesCD.motivo}`);
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      return ctx.reply(`❌ ${sesCD.motivo}`);
     }
 
     const { items, screenshots, debugPorTipo } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
@@ -276,7 +276,7 @@ bot.command("vencimientos", async (ctx) => {
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[VENCIMIENTOS]", e.message);
-    return ctx.reply(`Ã¢ÂÅ’ Error: ${e.message}`);
+    return ctx.reply(`❌ Error: ${e.message}`);
   }
 });
 
@@ -285,17 +285,17 @@ bot.command("aprender", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s credenciales de CD configuradas. ContactÃƒÂ¡ al administrador.");
+    return ctx.reply("❌ No tenés credenciales de CD configuradas. Contactá al administrador.");
 
-  await ctx.reply("Ã¢ÂÂ³ Conectando a controldocumentario.comÃ¢â‚¬Â¦");
+  await ctx.reply("⏳ Conectando a controldocumentario.com…");
 
   try {
     const sesion = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
     if (!sesion.ok) {
       if (sesion.screenshot) {
-        await ctx.replyWithPhoto(new InputFile(sesion.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesion.motivo}` });
+        await ctx.replyWithPhoto(new InputFile(sesion.screenshot, "login.jpg"), { caption: `❌ ${sesion.motivo}` });
       } else {
-        await ctx.reply(`Ã¢ÂÅ’ ${sesion.motivo}`);
+        await ctx.reply(`❌ ${sesion.motivo}`);
       }
       return;
     }
@@ -303,28 +303,28 @@ bot.command("aprender", async (ctx) => {
     const nombres = await cdLeerTiposRequerimientos(sesion.page);
 
     if (!nombres.length)
-      return ctx.reply("No encontrÃƒÂ© tipos de requerimientos en tu cuenta de CD.");
+      return ctx.reply("No encontré tipos de requerimientos en tu cuenta de CD.");
 
     const tiposUnicos = nombres.map((nombre) => ({ nombre, entidad: "", href: "" }));
     setSesion(chatId, { fase: "aprender_esperando_pdf", requerimientos: tiposUnicos });
 
     const mapeosYa = await leerTodosMapeosPorTipo(chatId);
     if (mapeosYa.length > 0) {
-      const lista = mapeosYa.map((m) => `Ã¢â‚¬Â¢ ${escapeHtml(m.nombre)} (${m.paginas.length} pÃƒÂ¡g.)`).join("\n");
+      const lista = mapeosYa.map((m) => `• ${escapeHtml(m.nombre)} (${m.paginas.length} pág.)`).join("\n");
       await ctx.reply(
-        `Ã°Å¸â€œÅ¡ Ya tenÃƒÂ©s <b>${mapeosYa.length}</b> tipo${mapeosYa.length !== 1 ? "s" : ""} aprendido${mapeosYa.length !== 1 ? "s" : ""}:\n\n${lista}\n\nÃ°Å¸â€™Â¡ Si querÃƒÂ©s revisar, editar o eliminar alguno, usÃƒÂ¡ /mapeos antes de continuar.`,
+        `📚 Ya tenés <b>${mapeosYa.length}</b> tipo${mapeosYa.length !== 1 ? "s" : ""} aprendido${mapeosYa.length !== 1 ? "s" : ""}:\n\n${lista}\n\n💡 Si querés revisar, editar o eliminar alguno, usá /mapeos antes de continuar.`,
         { parse_mode: "HTML" }
       );
     }
 
     return ctx.reply(
-      `Ã¢Å“â€¦ ${tiposUnicos.length} tipo${tiposUnicos.length !== 1 ? "s" : ""} de requerimiento encontrado${tiposUnicos.length !== 1 ? "s" : ""}.\n\nMandame el PDF de referencia para agregar o actualizar un tipo de documento.`,
+      `✅ ${tiposUnicos.length} tipo${tiposUnicos.length !== 1 ? "s" : ""} de requerimiento encontrado${tiposUnicos.length !== 1 ? "s" : ""}.\n\nMandame el PDF de referencia para agregar o actualizar un tipo de documento.`,
       { parse_mode: "HTML" }
     );
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[APRENDER]", e.message);
-    return ctx.reply(`Ã¢ÂÅ’ Error conectando a CD: ${e.message}`);
+    return ctx.reply(`❌ Error conectando a CD: ${e.message}`);
   }
 });
 
@@ -340,35 +340,35 @@ bot.command("generar", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s credenciales configuradas. UsÃƒÂ¡ /config primero.");
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
 
-  await ctx.reply("Ã¢ÂÂ³ Consultando tipos de requerimientosÃ¢â‚¬Â¦");
+  await ctx.reply("⏳ Consultando tipos de requerimientos…");
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
     if (!sesCD.ok) {
       if (sesCD.screenshot)
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
-      return ctx.reply(`Ã¢ÂÅ’ ${sesCD.motivo}`);
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      return ctx.reply(`❌ ${sesCD.motivo}`);
     }
 
     const tipos = await cdLeerTiposRequerimientos(sesCD.page);
     if (!tipos.length)
-      return ctx.reply("No encontrÃƒÂ© tipos de requerimientos en CD.");
+      return ctx.reply("No encontré tipos de requerimientos en CD.");
 
     // tipos is a flat array of strings (req names)
     const lista = tipos.map((nombre) => ({ nombre }));
     setSesion(chatId, { fase: "generar_buscando", lista, filtroActual: null, cdUser: cliente.cdUser, cdPass: cliente.cdPass });
 
     const lineas = lista.slice(0, 20).map((r, i) => `${i + 1}. ${escapeHtml(r.nombre)}`);
-    if (lista.length > 20) lineas.push(`\n<i>... y ${lista.length - 20} mÃƒÂ¡s. EscribÃƒÂ­ parte del nombre para filtrar.</i>`);
+    if (lista.length > 20) lineas.push(`\n<i>... y ${lista.length - 20} más. Escribí parte del nombre para filtrar.</i>`);
     return ctx.reply(
-      `Ã°Å¸â€œâ€¹ <b>${lista.length} tipo${lista.length !== 1 ? "s" : ""} de requerimiento${lista.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}\n\nEscribÃƒÂ­ el nÃƒÂºmero o parte del nombre para buscar.`,
+      `📋 <b>${lista.length} tipo${lista.length !== 1 ? "s" : ""} de requerimiento${lista.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}\n\nEscribí el número o parte del nombre para buscar.`,
       { parse_mode: "HTML" }
     );
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[GENERAR-CMD]", e.message);
-    return ctx.reply(`Ã¢ÂÅ’ Error: ${e.message}`);
+    return ctx.reply(`❌ Error: ${e.message}`);
   }
 });
 
@@ -377,9 +377,9 @@ bot.command("unico", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s credenciales configuradas. UsÃƒÂ¡ /config primero.");
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
   setSesion(chatId, { fase: "unico_esperando_pdf" });
-  return ctx.reply("Ã°Å¸â€œÅ½ Modo ÃƒÂºnico activado. Mandame el PDF a subir.");
+  return ctx.reply("📎 Modo único activado. Mandame el PDF a subir.");
 });
 
 bot.command("partemes", async (ctx) => {
@@ -387,22 +387,22 @@ bot.command("partemes", async (ctx) => {
   const cliente = await cargarCliente(chatId);
   if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
   if (!cliente.cdUser || !cliente.cdPass)
-    return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s credenciales configuradas. UsÃƒÂ¡ /config primero.");
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
 
-  await ctx.reply("Ã¢ÂÂ³ Grabando parte mensualÃ¢â‚¬Â¦");
+  await ctx.reply("⏳ Grabando parte mensual…");
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
     if (!sesCD.ok) {
       if (sesCD.screenshot)
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
-      return ctx.reply(`Ã¢ÂÅ’ ${sesCD.motivo}`);
+        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+      return ctx.reply(`❌ ${sesCD.motivo}`);
     }
     const { personal, maquinas } = await cdGrabarParteMensual(sesCD.page);
     return ctx.reply(_msgParteMensual(personal, maquinas), { parse_mode: "HTML" });
   } catch (e) {
     cdInvalidarSesion(chatId);
     console.error("[PARTEMES]", e.message);
-    return ctx.reply(`Ã¢ÂÅ’ Error grabando parte mensual: ${e.message}`);
+    return ctx.reply(`❌ Error grabando parte mensual: ${e.message}`);
   }
 });
 
@@ -413,11 +413,11 @@ bot.command("estado", async (ctx) => {
 
   const mapeos = await leerTodosMapeosPorTipo(chatId);
   const cuentaCD = cliente.cdUser
-    ? `Ã¢Å“â€¦ <code>${escapeHtml(cliente.cdUser)}</code>`
-    : "Ã¢ÂÅ’ No configurada Ã¢â‚¬â€ usÃƒÂ¡ /config";
+    ? `✅ <code>${escapeHtml(cliente.cdUser)}</code>`
+    : "❌ No configurada — usá /config";
 
   return ctx.reply(
-    `Ã°Å¸â€˜Â¤ <b>${escapeHtml(cliente.nombre)}</b>\n\nCuenta CD: ${cuentaCD}\nMapeos aprendidos: <b>${mapeos.length}</b>`,
+    `👤 <b>${escapeHtml(cliente.nombre)}</b>\n\nCuenta CD: ${cuentaCD}\nMapeos aprendidos: <b>${mapeos.length}</b>`,
     { parse_mode: "HTML" }
   );
 });
@@ -430,46 +430,46 @@ bot.command("listo", async (ctx) => {
   const asignados = await guardarSesionMapeo(chatId);
   if (!asignados) {
     resetSesion(chatId);
-    return ctx.reply("No quedÃƒÂ³ ningÃƒÂºn grupo asignado. EmpezÃƒÂ¡ de nuevo con /aprender.");
+    return ctx.reply("No quedó ningún grupo asignado. Empezá de nuevo con /aprender.");
   }
 
   const resumen = asignados
     .map(
       (g) =>
-        `Ã¢â‚¬Â¢ <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} Ã¢â€ â€™ ${g.paginas.length} pÃƒÂ¡g.`
+        `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`
     )
     .join("\n");
 
   const sinAsignar = sesion.paginasSinAsignar?.size || 0;
-  const nota = sinAsignar > 0 ? `\n\nÃ¢Å¡Â Ã¯Â¸Â ${sinAsignar} pÃƒÂ¡gina${sinAsignar !== 1 ? "s" : ""} sin mappear.` : "";
+  const nota = sinAsignar > 0 ? `\n\n⚠️ ${sinAsignar} página${sinAsignar !== 1 ? "s" : ""} sin mappear.` : "";
 
   setSesion(chatId, { fase: "aprender_preguntando_mas", grupos: [], imagenes: [], paginasSinAsignar: new Set() });
-  return ctx.reply(`Ã¢Å“â€¦ Mapeo guardado:\n\n${resumen}${nota}\n\nÃ‚Â¿QuerÃƒÂ©s mapear otro documento? Mandame el PDF o escribÃƒÂ­ <b>no</b> para terminar.`, { parse_mode: "HTML" });
+  return ctx.reply(`✅ Mapeo guardado:\n\n${resumen}${nota}\n\n¿Querés mapear otro documento? Mandame el PDF o escribí <b>no</b> para terminar.`, { parse_mode: "HTML" });
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Manejador principal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Manejador principal ──────────────────────────────────────────────────────
 
 bot.on("message", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const texto = (ctx.message.text || "").trim();
   const sesion = getSesion(chatId);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ PDF recibido Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── PDF recibido ──
   if (ctx.message.document?.mime_type === "application/pdf") {
     const cliente = await cargarCliente(chatId);
-    if (!cliente) return ctx.reply("No te conozco. Ã‚Â¿ContraseÃƒÂ±a?");
+    if (!cliente) return ctx.reply("No te conozco. ¿Contraseña?");
 
     // Mapeos: reemplazar referencia de un mapeo existente
     if (sesion.fase === "mapeos_reemplazando_pdf") {
       const { mapeoActual } = sesion;
-      await ctx.reply("Ã°Å¸â€œâ€ž Renderizando pÃƒÂ¡ginas de referenciaÃ¢â‚¬Â¦");
+      await ctx.reply("📄 Renderizando páginas de referencia…");
       try {
         const buffer = await bajarPdf(ctx);
         const imagenes = await pdfAImagenes(buffer);
 
         for (const { pagina, base64 } of imagenes) {
           await ctx.replyWithPhoto(new InputFile(Buffer.from(base64, "base64"), `p${pagina}.jpg`), {
-            caption: `PÃƒÂ¡gina ${pagina}`,
+            caption: `Página ${pagina}`,
           });
         }
 
@@ -480,31 +480,31 @@ bot.on("message", async (ctx) => {
             href: bruto?.href || "",
             entidad: bruto?.entidad || "",
           });
-          return await mostrarListaMapeos(ctx, chatId, `Ã¢Å“â€¦ "<b>${escapeHtml(mapeoActual.nombre)}</b>" actualizado con 1 pÃƒÂ¡gina.\n\n`);
+          return await mostrarListaMapeos(ctx, chatId, `✅ "<b>${escapeHtml(mapeoActual.nombre)}</b>" actualizado con 1 página.\n\n`);
         }
 
         const nums = imagenes.map((i) => i.pagina).join(", ");
         setSesion(chatId, { fase: "mapeos_reemplazando_paginas", imagenes });
         return ctx.reply(
-          `Ã¢Å“â€¦ ${imagenes.length} pÃƒÂ¡ginas listas: <b>${nums}</b>\n\nÃ‚Â¿CuÃƒÂ¡les van en "<b>${escapeHtml(mapeoActual.nombre)}</b>"?\nEscribÃƒÂ­ los nÃƒÂºmeros separados por coma, o <code>todas</code>.`,
+          `✅ ${imagenes.length} páginas listas: <b>${nums}</b>\n\n¿Cuáles van en "<b>${escapeHtml(mapeoActual.nombre)}</b>"?\nEscribí los números separados por coma, o <code>todas</code>.`,
           { parse_mode: "HTML" }
         );
       } catch (e) {
         resetSesion(chatId);
-        return ctx.reply(`Ã¢ÂÅ’ Error renderizando: ${e.message}`);
+        return ctx.reply(`❌ Error renderizando: ${e.message}`);
       }
     }
 
     // Aprender: PDF nuevo como referencia para requerimiento conflictivo
     if (sesion.fase === "aprender_overwrite_nuevo_pdf") {
       const { pendingConflictosReqs } = sesion;
-      await ctx.reply("Ã°Å¸â€œâ€ž Renderizando pÃƒÂ¡ginas de referenciaÃ¢â‚¬Â¦");
+      await ctx.reply("📄 Renderizando páginas de referencia…");
       try {
         const buffer = await bajarPdf(ctx);
         const imagenes = await pdfAImagenes(buffer);
 
         for (const { pagina, base64 } of imagenes) {
-          await ctx.replyWithPhoto(new InputFile(Buffer.from(base64, "base64"), `p${pagina}.jpg`), { caption: `PÃƒÂ¡gina ${pagina}` });
+          await ctx.replyWithPhoto(new InputFile(Buffer.from(base64, "base64"), `p${pagina}.jpg`), { caption: `Página ${pagina}` });
         }
 
         if (imagenes.length === 1) {
@@ -519,26 +519,26 @@ bot.on("message", async (ctx) => {
         const nombres = pendingConflictosReqs.map((r) => `"${escapeHtml(r.nombre)}"`).join(", ");
         setSesion(chatId, { fase: "aprender_overwrite_nuevo_paginas", imagenes });
         return ctx.reply(
-          `Ã¢Å“â€¦ ${imagenes.length} pÃƒÂ¡ginas listas: <b>${nums}</b>\n\nÃ‚Â¿CuÃƒÂ¡les van en ${nombres}?\nEscribÃƒÂ­ los nÃƒÂºmeros separados por coma, o <code>todas</code>.`,
+          `✅ ${imagenes.length} páginas listas: <b>${nums}</b>\n\n¿Cuáles van en ${nombres}?\nEscribí los números separados por coma, o <code>todas</code>.`,
           { parse_mode: "HTML" }
         );
       } catch (e) {
-        return ctx.reply(`Ã¢ÂÅ’ Error renderizando: ${e.message}`);
+        return ctx.reply(`❌ Error renderizando: ${e.message}`);
       }
     }
 
-    // Modo ÃƒÂºnico: subir PDF sin procesar
+    // Modo único: subir PDF sin procesar
     if (sesion.fase === "unico_esperando_pdf") {
-      await ctx.reply("Ã¢ÂÂ³ Cargando requerimientos de CDÃ¢â‚¬Â¦");
+      await ctx.reply("⏳ Cargando requerimientos de CD…");
       try {
         const buffer = await bajarPdf(ctx);
         const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
         if (!sesCD.ok) {
           resetSesion(chatId);
           if (sesCD.screenshot) {
-            return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
+            return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
           }
-          return ctx.reply(`Ã¢ÂÅ’ ${sesCD.motivo}`);
+          return ctx.reply(`❌ ${sesCD.motivo}`);
         }
         const reqs = await cdLeerRequerimientos(sesCD.page);
         if (!reqs.length) {
@@ -547,26 +547,26 @@ bot.on("message", async (ctx) => {
         }
         setSesion(chatId, { fase: "unico_buscando_req", buffer, requerimientos: reqs, filtroActual: null, cdUser: cliente.cdUser, cdPass: cliente.cdPass });
         return ctx.reply(
-          `Ã°Å¸â€œâ€¹ ${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}.\n\n${formatearReqs(reqs)}\n\nEscribÃƒÂ­ el nombre o parte para buscar, o <code>lista</code> para verlos todos.`,
+          `📋 ${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}.\n\n${formatearReqs(reqs)}\n\nEscribí el nombre o parte para buscar, o <code>lista</code> para verlos todos.`,
           { parse_mode: "HTML" }
         );
       } catch (e) {
         cdInvalidarSesion(chatId);
         resetSesion(chatId);
-        return ctx.reply(`Ã¢ÂÅ’ Error: ${e.message}`);
+        return ctx.reply(`❌ Error: ${e.message}`);
       }
     }
 
     // Aprender: PDF de referencia (primera vez o tras guardar)
     if (sesion.fase === "aprender_esperando_pdf" || sesion.fase === "aprender_preguntando_mas") {
-      await ctx.reply("Ã°Å¸â€œâ€ž Renderizando pÃƒÂ¡ginas de referenciaÃ¢â‚¬Â¦");
+      await ctx.reply("📄 Renderizando páginas de referencia…");
       try {
         const buffer = await bajarPdf(ctx);
         const imagenes = await pdfAImagenes(buffer);
 
         for (const { pagina, base64 } of imagenes) {
           await ctx.replyWithPhoto(new InputFile(Buffer.from(base64, "base64"), `p${pagina}.jpg`), {
-            caption: `PÃƒÂ¡gina ${pagina}`,
+            caption: `Página ${pagina}`,
           });
         }
 
@@ -575,56 +575,72 @@ bot.on("message", async (ctx) => {
         if (imagenes.length === 1) {
           setSesion(chatId, { fase: "aprender_asignando", buffer, imagenes, grupos: [], paginasSinAsignar: todasLasPaginas, grupoActual: { paginas: [1] }, filtroActual: null });
           return ctx.reply(
-            `Ã¢Å“â€¦ 1 pÃƒÂ¡gina lista.\n\nÃ‚Â¿A quÃƒÂ© requerimiento corresponde?\n\nEscribÃƒÂ­ parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar.`,
+            ` 1 página lista.\n\n¿A qué requerimiento corresponde?\n\nEscrib parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar.`,
             { parse_mode: "HTML" }
           );
         }
 
         setSesion(chatId, { fase: "aprender_agrupando", buffer, imagenes, grupos: [], paginasSinAsignar: todasLasPaginas });
-        return ctx.reply(`Ã¢Å“â€¦ ${imagenes.length} pÃƒÂ¡ginas listas.\n\n` + msgAgrupar(todasLasPaginas), { parse_mode: "HTML" });
+        return ctx.reply(` ${imagenes.length} páginas listas.\n\n` + msgAgrupar(todasLasPaginas), { parse_mode: "HTML" });
+        return ctx.reply(`✅ ${imagenes.length} páginas listas.\n\n` + msgAgrupar(todasLasPaginas), { parse_mode: "HTML" });
       } catch (e) {
         console.error("[PDF ERROR]", e.message);
-        return ctx.reply(`Ã¢ÂÅ’ Error renderizando: ${e.message}`);
+        return ctx.reply(`❌ Error renderizando: ${e.message}`);
       }
     }
 
     // Modo trabajar: analizar y subir
-    await ctx.reply("Ã¢ÂÂ³ Analizando documentosÃ¢â‚¬Â¦");
+    await ctx.reply("⏳ Analizando documentos…");
     try {
       const buffer = await bajarPdf(ctx);
       const imagenes = await pdfAImagenes(buffer);
 
       const mapeos = await leerTodosMapeosPorTipo(chatId);
       if (!mapeos.length)
-        return ctx.reply("Ã¢ÂÅ’ No tenÃƒÂ©s mapeos configurados. UsÃƒÂ¡ /aprender primero para enseÃƒÂ±arme los tipos de documentos.");
+        return ctx.reply("❌ No tenés mapeos configurados. Usá /aprender primero para enseñarme los tipos de documentos.");
 
-      await ctx.reply(`Ã°Å¸â€â€” ${imagenes.length} pÃƒÂ¡ginas listas. Leyendo requerimientos de CDÃ¢â‚¬Â¦`);
+      await ctx.reply(`🔗 ${imagenes.length} páginas listas. Leyendo requerimientos de CD…`);
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
       if (!sesCD.ok) {
         if (sesCD.screenshot) {
-          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `Ã¢ÂÅ’ ${sesCD.motivo}` });
+          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
         }
-        return ctx.reply(`Ã¢ÂÅ’ Error conectando a CD: ${sesCD.motivo}`);
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
       }
 
       const reqs = await cdLeerRequerimientos(sesCD.page);
       if (!reqs.length)
         return ctx.reply("No hay requerimientos pendientes en CD por el momento.");
 
-      await ctx.reply(`Ã°Å¸Â¤â€“ Clasificando ${imagenes.length} pÃƒÂ¡ginas contra ${reqs.length} requerimientos pendientesÃ¢â‚¬Â¦`);
+      await ctx.reply(`🤖 Clasificando ${imagenes.length} páginas contra ${reqs.length} requerimientos pendientes…`);
       const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs, cliente.nombreEmpresa || "");
 
-      if (!resultado || (!resultado.grupos.length && !resultado.sinRequerido?.length))
-        return ctx.reply("Ã¢ÂÅ’ No pude identificar los documentos. VerificÃƒÂ¡ que el PDF coincide con los mapeos configurados.");
+      if (!resultado)
+        return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
+
+      // Tipo reconocido pero la entidad del documento no corresponde a ningún empleado de esta cuenta
+      if (!resultado.grupos.length && !resultado.sinRequerido?.length && resultado.sinAsignar?.length) {
+        const tiposNoMatch = resultado.paginasClasificadas
+          ?.map(p => p.tipo_detectado).filter(Boolean)
+          .filter((v, i, a) => a.indexOf(v) === i).join(", ");
+        const detalle = tiposNoMatch ? ` (tipo detectado: <i>${escapeHtml(tiposNoMatch)}</i>)` : "";
+        return ctx.reply(
+          `❌ El documento${detalle} no corresponde a ningún empleado registrado en esta cuenta de CD.\n\nSi el documento es correcto, usá /unico para subirlo al requerimiento manualmente.`,
+          { parse_mode: "HTML" }
+        );
+      }
+
+      if (!resultado.grupos.length && !resultado.sinRequerido?.length)
+        return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
 
       const totalSubidas = resultado.grupos.reduce((s, g) => s + g.reqs.length, 0);
 
-      // Debug: clasificaciÃƒÂ³n por pÃƒÂ¡gina
+      // Debug: clasificación por página
       if (resultado.paginasClasificadas?.length) {
         const debugLineas = resultado.paginasClasificadas.map(
-          (p) => `  pÃƒÂ¡g ${p.pagina}: <i>${escapeHtml(p.tipo_detectado || "?")}</i>${p.entidad_detectada ? ` Ã¢â‚¬â€ <b>${escapeHtml(p.entidad_detectada)}</b>` : " (sin entidad)"}`
+          (p) => `  pág ${p.pagina}: <i>${escapeHtml(p.tipo_detectado || "?")}</i>${p.entidad_detectada ? ` — <b>${escapeHtml(p.entidad_detectada)}</b>` : " (sin entidad)"}`
         ).join("\n");
-        await ctx.reply(`Ã°Å¸â€Â <b>ClasificaciÃƒÂ³n detectada:</b>\n${debugLineas}`, { parse_mode: "HTML" });
+        await ctx.reply(`🔍 <b>Clasificación detectada:</b>\n${debugLineas}`, { parse_mode: "HTML" });
       }
 
       const _parseTotalMeses = (nombre) => {
@@ -636,28 +652,28 @@ bot.on("message", async (ctx) => {
 
       const lineas = resultado.grupos.map((g, i) => {
         const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
-        const reqsStr = g.reqs.map((r) => `  Ã¢â‚¬Â¢ <i>${escapeHtml(r.nombre)}</i>`).join("\n");
-        let linea = `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> Ã¢â€ â€™ pÃƒÂ¡gs. ${pags}\n${reqsStr}`;
+        const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
+        let linea = `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> → págs. ${pags}\n${reqsStr}`;
         if (g.omitidos?.length) {
-          const omitStr = g.omitidos.map((r) => `  Ã¢ÂÂ© <i>${escapeHtml(r.nombre)}</i>`).join("\n");
-          linea += `\n${omitStr} (perÃƒÂ­odo anterior, no se sube)`;
+          const omitStr = g.omitidos.map((r) => `  ⏩ <i>${escapeHtml(r.nombre)}</i>`).join("\n");
+          linea += `\n${omitStr} (período anterior, no se sube)`;
         }
         const maxTotalMeses = Math.max(...g.reqs.map((r) => _parseTotalMeses(r.nombre) ?? 0));
         const mesesAtras = _totalMesesActual - maxTotalMeses;
         if (maxTotalMeses > 0 && mesesAtras >= 2) {
-          linea += `\n  Ã¢Å¡Â Ã¯Â¸Â El req mÃƒÂ¡s reciente estÃƒÂ¡ ${mesesAtras} mes${mesesAtras !== 1 ? "es" : ""} atrÃƒÂ¡s del mes actual`;
+          linea += `\n  ⚠️ El req más reciente está ${mesesAtras} mes${mesesAtras !== 1 ? "es" : ""} atrás del mes actual`;
         }
         return linea;
       });
       if (resultado.sinAsignar.length)
-        lineas.push(`\nÃ¢Å¡Â Ã¯Â¸Â Sin identificar: pÃƒÂ¡ginas ${resultado.sinAsignar.join(", ")}`);
+        lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
 
       const sinRequerido = resultado.sinRequerido || [];
       if (sinRequerido.length) {
         const srStr = sinRequerido.map((item) => {
           const pags = item.paginas.slice().sort((a, b) => a - b).join(", ");
           const entidad = item.entidad ? ` (<i>${escapeHtml(item.entidad)}</i>)` : "";
-          return `  Ã¢Å¡Â¡ PÃƒÂ¡gs. ${pags} Ã¢â€ â€™ <i>${escapeHtml(item.tipo)}</i>${entidad} Ã¢â‚¬â€ sin requerido en CD`;
+          return `  ⚡ Págs. ${pags} → <i>${escapeHtml(item.tipo)}</i>${entidad} — sin requerido en CD`;
         }).join("\n");
         lineas.push(`\n${srStr}`);
       }
@@ -672,12 +688,12 @@ bot.on("message", async (ctx) => {
       });
 
       const encabezado = resultado.grupos.length
-        ? `Ã°Å¸â€œâ€¹ <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>`
-        : `Ã°Å¸â€œâ€¹ <b>Sin coincidencias directas con requeridos pendientes.</b>`;
+        ? `📋 <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>`
+        : `📋 <b>Sin coincidencias directas con requeridos pendientes.</b>`;
 
       const pregunta = resultado.grupos.length
-        ? `Ã‚Â¿Confirmar y subir todo? (sÃƒÂ­ / no)`
-        : `Ã‚Â¿Procedemos a generar los requeridos faltantes? (sÃƒÂ­ / no)`;
+        ? `¿Confirmar y subir todo? (sí / no)`
+        : `¿Procedemos a generar los requeridos faltantes? (sí / no)`;
 
       return ctx.reply(
         `${encabezado}\n\n${lineas.join("\n\n")}\n\n${pregunta}`,
@@ -685,24 +701,24 @@ bot.on("message", async (ctx) => {
       );
     } catch (e) {
       console.error("[TRABAJAR]", e.message);
-      return ctx.reply(`Ã¢ÂÅ’ Error: ${e.message}`);
+      return ctx.reply(`❌ Error: ${e.message}`);
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Config: esperando usuario de CD Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Config: esperando usuario de CD ──
   if (sesion.fase === "config_esperando_user" && texto && !texto.startsWith("/")) {
     setSesion(chatId, { fase: "config_esperando_pass", cdUserTemp: texto });
-    return ctx.reply("Ahora mandame la <b>contraseÃƒÂ±a de control documentario</b>:", { parse_mode: "HTML" });
+    return ctx.reply("Ahora mandame la <b>contraseña de control documentario</b>:", { parse_mode: "HTML" });
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Config: esperando contraseÃƒÂ±a de CD Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Config: esperando contraseña de CD ──
   if (sesion.fase === "config_esperando_pass" && texto && !texto.startsWith("/")) {
     const cdUser = sesion.cdUserTemp;
     const cdPass = texto;
-    await ctx.reply("Ã¢ÂÂ³ Probando credencialesÃ¢â‚¬Â¦");
+    await ctx.reply("⏳ Probando credenciales…");
 
     try {
-      // Invalidar sesiÃƒÂ³n cacheada Ã¢â‚¬â€ credenciales nuevas requieren login fresco
+      // Invalidar sesión cacheada — credenciales nuevas requieren login fresco
       cdInvalidarSesion(chatId);
       const sesion = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
 
@@ -710,51 +726,51 @@ bot.on("message", async (ctx) => {
         resetSesion(chatId);
         if (sesion.screenshot) {
           await ctx.replyWithPhoto(new InputFile(sesion.screenshot, "login.jpg"), {
-            caption: `Ã¢ÂÅ’ ${sesion.motivo}\n\nUsÃƒÂ¡ /config para intentar de nuevo.`,
+            caption: `❌ ${sesion.motivo}\n\nUsá /config para intentar de nuevo.`,
           });
         } else {
-          await ctx.reply(`Ã¢ÂÅ’ ${sesion.motivo}\n\nUsÃƒÂ¡ /config para intentar de nuevo.`);
+          await ctx.reply(`❌ ${sesion.motivo}\n\nUsá /config para intentar de nuevo.`);
         }
         return;
       }
 
       await actualizarCliente(chatId, { cdUser, cdPass });
 
-      // Intentar detectar el nombre de la empresa automÃƒÂ¡ticamente
+      // Intentar detectar el nombre de la empresa automáticamente
       const nombreDetectado = await cdDetectarNombreEmpresa(sesion.page);
       if (nombreDetectado) {
         await actualizarCliente(chatId, { nombreEmpresa: nombreDetectado });
         resetSesion(chatId);
         return ctx.reply(
-          `Ã¢Å“â€¦ Credenciales guardadas.\n\nDetectÃƒÂ© que tu empresa es: <b>${escapeHtml(nombreDetectado)}</b>\n\nEste nombre se usarÃƒÂ¡ para distinguir documentos de empresa de los personales. Si es incorrecto, mandÃƒÂ¡ el nombre correcto ahora o escribÃƒÂ­ <code>ok</code> para continuar.`,
+          `✅ Credenciales guardadas.\n\nDetecté que tu empresa es: <b>${escapeHtml(nombreDetectado)}</b>\n\nEste nombre se usará para distinguir documentos de empresa de los personales. Si es incorrecto, mandá el nombre correcto ahora o escribí <code>ok</code> para continuar.`,
           { parse_mode: "HTML" }
         );
-        // La sesiÃƒÂ³n se resetea pero si el usuario responde con el nombre correcto no habrÃƒÂ¡ fase activa
-        // Ã¢â‚¬â€ se maneja en el bloque de texto libre abajo
+        // La sesión se resetea pero si el usuario responde con el nombre correcto no habrá fase activa
+        // — se maneja en el bloque de texto libre abajo
       }
 
       setSesion(chatId, { fase: "config_esperando_empresa", cdUser, cdPass });
       return ctx.reply(
-        `Ã¢Å“â€¦ Credenciales guardadas.\n\nÃ‚Â¿CuÃƒÂ¡l es el <b>nombre de tu empresa</b> tal como aparece en los documentos? (ej: "MATESIN, CLAUDIO FABIAN")\n\nEscribÃƒÂ­ el nombre o <code>omitir</code> si no querÃƒÂ©s configurarlo ahora.`,
+        `✅ Credenciales guardadas.\n\n¿Cuál es el <b>nombre de tu empresa</b> tal como aparece en los documentos? (ej: "MATESIN, CLAUDIO FABIAN")\n\nEscribí el nombre o <code>omitir</code> si no querés configurarlo ahora.`,
         { parse_mode: "HTML" }
       );
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
-      return ctx.reply(`Ã¢ÂÅ’ Error probando credenciales: ${e.message}\n\nUsÃƒÂ¡ /config para intentar de nuevo.`);
+      return ctx.reply(`❌ Error probando credenciales: ${e.message}\n\nUsá /config para intentar de nuevo.`);
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Config: esperando nombre de empresa Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Config: esperando nombre de empresa ──
   if (sesion.fase === "config_esperando_empresa" && texto && !texto.startsWith("/")) {
     if (!/^omitir$/i.test(texto)) {
       await actualizarCliente(chatId, { nombreEmpresa: texto.trim() });
     }
     resetSesion(chatId);
-    return ctx.reply("Ã¢Å“â€¦ Listo. Ya podÃƒÂ©s usar /aprender.");
+    return ctx.reply("✅ Listo. Ya podés usar /aprender.");
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Aprender: agrupando pÃƒÂ¡ginas Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Aprender: agrupando páginas ──
   if (sesion.fase === "aprender_agrupando" && texto && !texto.startsWith("/")) {
     const nums = texto
       .split(",")
@@ -762,47 +778,47 @@ bot.on("message", async (ctx) => {
       .filter((n) => !isNaN(n));
 
     if (!nums.length)
-      return ctx.reply("EscribÃƒÂ­ los nÃƒÂºmeros de pÃƒÂ¡gina separados por coma, ej: <code>1,2</code>", {
+      return ctx.reply("Escribí los números de página separados por coma, ej: <code>1,2</code>", {
         parse_mode: "HTML",
       });
 
     const invalidas = nums.filter((n) => !sesion.paginasSinAsignar.has(n));
     if (invalidas.length)
       return ctx.reply(
-        `Ã¢ÂÅ’ PÃƒÂ¡gina${invalidas.length > 1 ? "s" : ""} no disponible${invalidas.length > 1 ? "s" : ""}: ${invalidas.join(", ")}. Disponibles: ${[...sesion.paginasSinAsignar].join(", ")}`
+        `❌ Página${invalidas.length > 1 ? "s" : ""} no disponible${invalidas.length > 1 ? "s" : ""}: ${invalidas.join(", ")}. Disponibles: ${[...sesion.paginasSinAsignar].join(", ")}`
       );
 
     setSesion(chatId, { grupoActual: { paginas: nums }, fase: "aprender_asignando", filtroActual: null });
 
     return ctx.reply(
-      `Ã¢Å“â€¦ Grupo: pÃƒÂ¡ginas <b>${nums.join(", ")}</b>\n\nÃ‚Â¿A quÃƒÂ© requerimiento corresponde?\n\nEscribÃƒÂ­ algo para buscar en la lista, o <code>lista</code> para verla completa.\n\n/listo para finalizar el mapeo.`,
+      `✅ Grupo: páginas <b>${nums.join(", ")}</b>\n\n¿A qué requerimiento corresponde?\n\nEscribí algo para buscar en la lista, o <code>lista</code> para verla completa.\n\n/listo para finalizar el mapeo.`,
       { parse_mode: "HTML" }
     );
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Aprender: asignando requerimiento(s) Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Aprender: asignando requerimiento(s) ──
   if (sesion.fase === "aprender_asignando" && texto && !texto.startsWith("/")) {
     const listaActual = sesion.filtroActual || sesion.requerimientos;
 
-    // "lista" Ã¢â€ â€™ mostrar todo paginado
+    // "lista" → mostrar todo paginado
     if (texto.toLowerCase() === "lista") {
       setSesion(chatId, { filtroActual: sesion.requerimientos });
       return ctx.reply(
-        `Ã°Å¸â€œâ€¹ ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribÃƒÂ­ un nÃƒÂºmero para seleccionar, o texto para seguir filtrando.\n\n/listo para finalizar el mapeo.`,
+        `📋 ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribí un número para seleccionar, o texto para seguir filtrando.\n\n/listo para finalizar el mapeo.`,
         { parse_mode: "HTML" }
       );
     }
 
-    // Texto no numÃƒÂ©rico Ã¢â€ â€™ buscar en la lista completa
+    // Texto no numérico → buscar en la lista completa
     const esNumerico = /^[\d,\s]+$/.test(texto);
     if (!esNumerico) {
       const filtro = texto.toLowerCase();
       const filtrados = sesion.requerimientos.filter((r) => r.nombre.toLowerCase().includes(filtro));
       if (!filtrados.length)
-        return ctx.reply(`No encontrÃƒÂ© nada con "<b>${escapeHtml(texto)}</b>". ProbÃƒÂ¡ con otra palabra, o escribÃƒÂ­ <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`, { parse_mode: "HTML" });
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra, o escribí <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`, { parse_mode: "HTML" });
       setSesion(chatId, { filtroActual: filtrados });
       return ctx.reply(
-        `Ã°Å¸â€Â ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribÃƒÂ­ el nÃƒÂºmero para seleccionar.\n\n/listo para finalizar el mapeo.`,
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribí el número para seleccionar.\n\n/listo para finalizar el mapeo.`,
         { parse_mode: "HTML" }
       );
     }
@@ -810,11 +826,11 @@ bot.on("message", async (ctx) => {
     const idxs = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n));
     const invalidos = idxs.filter((i) => i < 0 || i >= listaActual.length);
     if (!idxs.length || invalidos.length)
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${listaActual.length}, o texto para buscar.`, { parse_mode: "HTML" });
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}, o texto para buscar.`, { parse_mode: "HTML" });
 
     const reqsElegidos = idxs.map((i) => listaActual[i]);
 
-    // Detectar si algÃƒÂºn req seleccionado ya tiene mapeo guardado
+    // Detectar si algún req seleccionado ya tiene mapeo guardado
     const mapeosExistentes = await leerTodosMapeosPorTipo(chatId);
     const conflictos = reqsElegidos
       .map((req) => ({ req, mapeo: mapeosExistentes.find((m) => baseNombreReq(m.nombre) === baseNombreReq(req.nombre)) }))
@@ -840,13 +856,13 @@ bot.on("message", async (ctx) => {
         if (mapeo.paginas?.[0]?.imagen) {
           await ctx.replyWithPhoto(
             new InputFile(Buffer.from(mapeo.paginas[0].imagen, "base64"), "referencia.jpg"),
-            { caption: `Ã°Å¸â€œÅ’ "${escapeHtml(req.nombre)}" Ã¢â‚¬â€ ejemplo guardado (${mapeo.paginas.length} pÃƒÂ¡g.)` }
+            { caption: `📌 "${escapeHtml(req.nombre)}" — ejemplo guardado (${mapeo.paginas.length} pág.)` }
           );
         }
       }
 
       return ctx.reply(
-        `Ã¢Å¡Â Ã¯Â¸Â ${nombresConflicto} ya ${conflictos.length === 1 ? "tiene" : "tienen"} un ejemplo guardado (imagen arriba).\n\nÃ‚Â¿QuÃƒÂ© querÃƒÂ©s hacer?\n<b>sÃƒÂ­</b> Ã¢â‚¬â€ reemplazar con las pÃƒÂ¡ginas que elegiste\n<b>no</b> Ã¢â‚¬â€ elegir otro requerimiento para estas pÃƒÂ¡ginas\n<b>otro</b> Ã¢â‚¬â€ subir un PDF diferente como referencia\n/mapeos Ã¢â‚¬â€ gestionar todos tus mapeos guardados\n\n/listo para finalizar el mapeo.`,
+        `⚠️ ${nombresConflicto} ya ${conflictos.length === 1 ? "tiene" : "tienen"} un ejemplo guardado (imagen arriba).\n\n¿Qué querés hacer?\n<b>sí</b> — reemplazar con las páginas que elegiste\n<b>no</b> — elegir otro requerimiento para estas páginas\n<b>otro</b> — subir un PDF diferente como referencia\n/mapeos — gestionar todos tus mapeos guardados\n\n/listo para finalizar el mapeo.`,
         { parse_mode: "HTML" }
       );
     }
@@ -863,25 +879,25 @@ bot.on("message", async (ctx) => {
       .map((r) => `<b>${escapeHtml(r.nombre)}</b>${r.entidad ? ` (${escapeHtml(r.entidad)})` : ""}`)
       .join(" y ");
 
-    // Si se mapearon todas las pÃƒÂ¡ginas, guardar y preguntar si continÃƒÂºa
+    // Si se mapearon todas las páginas, guardar y preguntar si continúa
     if (!paginasSinAsignar.size) {
       const asignados = await guardarSesionMapeo(chatId);
       const resumen = asignados
-        .map((g) => `Ã¢â‚¬Â¢ <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} Ã¢â€ â€™ ${g.paginas.length} pÃƒÂ¡g.`)
+        .map((g) => `• <b>${escapeHtml(g.req.nombre)}</b>${g.req.entidad ? ` (${escapeHtml(g.req.entidad)})` : ""} → ${g.paginas.length} pág.`)
         .join("\n");
       setSesion(chatId, { fase: "aprender_preguntando_mas", grupos: [], imagenes: [], paginasSinAsignar: new Set() });
-      return ctx.reply(`Ã¢Å“â€¦ ${nombresReqs} = pÃƒÂ¡ginas ${sesion.grupoActual.paginas.join(", ")}\n\nTodas las pÃƒÂ¡ginas mapeadas. Mapeo guardado:\n\n${resumen}\n\nÃ‚Â¿QuerÃƒÂ©s mapear otro documento? Mandame el PDF o escribÃƒÂ­ <b>no</b> para terminar.`, {
+      return ctx.reply(`✅ ${nombresReqs} = páginas ${sesion.grupoActual.paginas.join(", ")}\n\nTodas las páginas mapeadas. Mapeo guardado:\n\n${resumen}\n\n¿Querés mapear otro documento? Mandame el PDF o escribí <b>no</b> para terminar.`, {
         parse_mode: "HTML",
       });
     }
 
-    const confirmacion = `Ã¢Å“â€¦ ${nombresReqs} = pÃƒÂ¡ginas ${sesion.grupoActual.paginas.join(", ")}\n\n`;
+    const confirmacion = `✅ ${nombresReqs} = páginas ${sesion.grupoActual.paginas.join(", ")}\n\n`;
 
     if (paginasSinAsignar.size === 1) {
       const [solaUnica] = paginasSinAsignar;
       setSesion(chatId, { grupoActual: { paginas: [solaUnica] }, fase: "aprender_asignando", filtroActual: null });
       return ctx.reply(
-        confirmacion + `Solo queda la pÃƒÂ¡gina <b>${solaUnica}</b>. Ã‚Â¿A quÃƒÂ© requerimiento corresponde?\n\nEscribÃƒÂ­ parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`,
+        confirmacion + `Solo queda la página <b>${solaUnica}</b>. ¿A qué requerimiento corresponde?\n\nEscribí parte del nombre para buscar, o <code>lista</code> para verlos todos.\n\n/listo para finalizar el mapeo.`,
         { parse_mode: "HTML" }
       );
     }
@@ -889,17 +905,17 @@ bot.on("message", async (ctx) => {
     return ctx.reply(confirmacion + msgAgrupar(paginasSinAsignar), { parse_mode: "HTML" });
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Aprender: preguntando si mapear otro documento Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Aprender: preguntando si mapear otro documento ──
   if (sesion.fase === "aprender_preguntando_mas" && texto && !texto.startsWith("/")) {
     resetSesion(chatId);
-    return ctx.reply("Ã‚Â¡Listo! PodÃƒÂ©s usar /aprender cuando quieras agregar mÃƒÂ¡s documentos.");
+    return ctx.reply("¡Listo! Podés usar /aprender cuando quieras agregar más documentos.");
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Mapeos: seleccionando de la lista Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Mapeos: seleccionando de la lista ──
   if (sesion.fase === "mapeos_lista" && texto && !texto.startsWith("/")) {
     const idx = parseInt(texto.trim()) - 1;
     if (isNaN(idx) || idx < 0 || idx >= sesion.mapeosList.length)
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${sesion.mapeosList.length}.`);
+      return ctx.reply(`Escribí un número del 1 al ${sesion.mapeosList.length}.`);
 
     const mapeo = sesion.mapeosList[idx];
     setSesion(chatId, { fase: "mapeos_viendo", mapeoActual: mapeo });
@@ -907,17 +923,17 @@ bot.on("message", async (ctx) => {
     for (const pag of mapeo.paginas) {
       await ctx.replyWithPhoto(
         new InputFile(Buffer.from(pag.imagen, "base64"), `ref${pag.num}.jpg`),
-        { caption: `PÃƒÂ¡gina ${pag.num} de referencia` }
+        { caption: `Página ${pag.num} de referencia` }
       );
     }
 
     return ctx.reply(
-      `Ã°Å¸â€œÅ’ <b>${escapeHtml(mapeo.nombre)}</b> Ã¢â‚¬â€ ${mapeo.paginas.length} pÃƒÂ¡g.\n\nÃ‚Â¿QuÃƒÂ© querÃƒÂ©s hacer?\n<code>reemplazar</code> Ã¢â‚¬â€ subir nuevo PDF de referencia\n<code>eliminar</code> Ã¢â‚¬â€ borrar este mapeo\n<code>cancelar</code> Ã¢â‚¬â€ volver a la lista`,
+      `📌 <b>${escapeHtml(mapeo.nombre)}</b> — ${mapeo.paginas.length} pág.\n\n¿Qué querés hacer?\n<code>reemplazar</code> — subir nuevo PDF de referencia\n<code>eliminar</code> — borrar este mapeo\n<code>cancelar</code> — volver a la lista`,
       { parse_mode: "HTML" }
     );
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Mapeos: acciÃƒÂ³n sobre mapeo seleccionado Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Mapeos: acción sobre mapeo seleccionado ──
   if (sesion.fase === "mapeos_viendo" && texto && !texto.startsWith("/")) {
     const accion = texto.toLowerCase().trim();
 
@@ -928,7 +944,7 @@ bot.on("message", async (ctx) => {
     if (accion === "eliminar") {
       setSesion(chatId, { fase: "mapeos_confirmando_eliminar" });
       return ctx.reply(
-        `Ã¢Å¡Â Ã¯Â¸Â Ã‚Â¿Seguro que querÃƒÂ©s eliminar "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>"? (sÃƒÂ­ / no)`,
+        `⚠️ ¿Seguro que querés eliminar "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>"? (sí / no)`,
         { parse_mode: "HTML" }
       );
     }
@@ -936,29 +952,29 @@ bot.on("message", async (ctx) => {
     if (accion === "reemplazar") {
       setSesion(chatId, { fase: "mapeos_reemplazando_pdf" });
       return ctx.reply(
-        `Ã°Å¸â€œÅ½ Mandame el nuevo PDF de referencia para "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>".`,
+        `📎 Mandame el nuevo PDF de referencia para "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>".`,
         { parse_mode: "HTML" }
       );
     }
 
-    return ctx.reply(`EscribÃƒÂ­ <code>reemplazar</code>, <code>eliminar</code> o <code>cancelar</code>.`, { parse_mode: "HTML" });
+    return ctx.reply(`Escribí <code>reemplazar</code>, <code>eliminar</code> o <code>cancelar</code>.`, { parse_mode: "HTML" });
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Mapeos: confirmando eliminaciÃƒÂ³n Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Mapeos: confirmando eliminación ──
   if (sesion.fase === "mapeos_confirmando_eliminar" && texto && !texto.startsWith("/")) {
-    if (!/^s[iÃƒÂ­]/i.test(texto) && texto.toLowerCase() !== "ok") {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
       setSesion(chatId, { fase: "mapeos_viendo" });
       return ctx.reply(
-        `Cancelado. Ã‚Â¿QuÃƒÂ© querÃƒÂ©s hacer con "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>"?\n<code>reemplazar</code> / <code>eliminar</code> / <code>cancelar</code>`,
+        `Cancelado. ¿Qué querés hacer con "<b>${escapeHtml(sesion.mapeoActual.nombre)}</b>"?\n<code>reemplazar</code> / <code>eliminar</code> / <code>cancelar</code>`,
         { parse_mode: "HTML" }
       );
     }
     const nombre = sesion.mapeoActual.nombre;
     await eliminarMapeo(chatId, nombre);
-    return await mostrarListaMapeos(ctx, chatId, `Ã¢Å“â€¦ "<b>${escapeHtml(nombre)}</b>" eliminado.\n\n`);
+    return await mostrarListaMapeos(ctx, chatId, `✅ "<b>${escapeHtml(nombre)}</b>" eliminado.\n\n`);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Mapeos: eligiendo pÃƒÂ¡ginas para reemplazar Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Mapeos: eligiendo páginas para reemplazar ──
   if (sesion.fase === "mapeos_reemplazando_paginas" && texto && !texto.startsWith("/")) {
     const { imagenes, mapeoActual } = sesion;
 
@@ -969,7 +985,7 @@ bot.on("message", async (ctx) => {
       const nums = texto.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n));
       const invalidas = nums.filter((n) => !imagenes.find((i) => i.pagina === n));
       if (!nums.length || invalidas.length)
-        return ctx.reply(`PÃƒÂ¡ginas disponibles: ${imagenes.map((i) => i.pagina).join(", ")}. EscribÃƒÂ­ los nÃƒÂºmeros o <code>todas</code>.`, { parse_mode: "HTML" });
+        return ctx.reply(`Páginas disponibles: ${imagenes.map((i) => i.pagina).join(", ")}. Escribí los números o <code>todas</code>.`, { parse_mode: "HTML" });
       paginasElegidas = nums;
     }
 
@@ -984,23 +1000,23 @@ bot.on("message", async (ctx) => {
       href: bruto?.href || "",
       entidad: bruto?.entidad || "",
     });
-    return await mostrarListaMapeos(ctx, chatId, `Ã¢Å“â€¦ "<b>${escapeHtml(mapeoActual.nombre)}</b>" actualizado con ${paginasRef.length} pÃƒÂ¡gina${paginasRef.length !== 1 ? "s" : ""}.\n\n`);
+    return await mostrarListaMapeos(ctx, chatId, `✅ "<b>${escapeHtml(mapeoActual.nombre)}</b>" actualizado con ${paginasRef.length} página${paginasRef.length !== 1 ? "s" : ""}.\n\n`);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Aprender: confirmando sobreescritura de mapeo Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Aprender: confirmando sobreescritura de mapeo ──
   if (sesion.fase === "aprender_confirmando_overwrite" && texto && !texto.startsWith("/")) {
     const accion = texto.toLowerCase().trim();
 
     if (accion === "otro") {
       setSesion(chatId, { fase: "aprender_overwrite_nuevo_pdf" });
       const nombres = sesion.pendingConflictosReqs.map((r) => `"${escapeHtml(r.nombre)}"`).join(", ");
-      return ctx.reply(`Ã°Å¸â€œÅ½ Mandame el PDF de referencia para ${nombres}.`, { parse_mode: "HTML" });
+      return ctx.reply(`📎 Mandame el PDF de referencia para ${nombres}.`, { parse_mode: "HTML" });
     }
 
-    if (!/^s[iÃƒÂ­]/i.test(texto) && accion !== "ok") {
+    if (!/^s[ií]/i.test(texto) && accion !== "ok") {
       setSesion(chatId, { fase: "aprender_asignando", grupoActual: sesion.pendingGrupoActual, filtroActual: null });
       return ctx.reply(
-        `Ok, no se reemplaza. Ã‚Â¿A quÃƒÂ© requerimiento querÃƒÂ©s asignar las pÃƒÂ¡ginas <b>${sesion.pendingGrupoActual.paginas.join(", ")}</b>?\n\nEscribÃƒÂ­ parte del nombre para buscar, o <code>lista</code> para verlos todos.\nÃ°Å¸â€™Â¡ O usÃƒÂ¡ /mapeos para gestionar los ejemplos guardados.\n\n/listo para finalizar el mapeo.`,
+        `Ok, no se reemplaza. ¿A qué requerimiento querés asignar las páginas <b>${sesion.pendingGrupoActual.paginas.join(", ")}</b>?\n\nEscribí parte del nombre para buscar, o <code>lista</code> para verlos todos.\n💡 O usá /mapeos para gestionar los ejemplos guardados.\n\n/listo para finalizar el mapeo.`,
         { parse_mode: "HTML" }
       );
     }
@@ -1008,7 +1024,7 @@ bot.on("message", async (ctx) => {
     return continuarAprendiendoDesdeConflicto(ctx, chatId);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Aprender: eligiendo pÃƒÂ¡ginas del PDF nuevo para overwrite Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Aprender: eligiendo páginas del PDF nuevo para overwrite ──
   if (sesion.fase === "aprender_overwrite_nuevo_paginas" && texto && !texto.startsWith("/")) {
     const { imagenes, pendingConflictosReqs } = sesion;
 
@@ -1019,7 +1035,7 @@ bot.on("message", async (ctx) => {
       const nums = texto.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n));
       const invalidas = nums.filter((n) => !imagenes.find((i) => i.pagina === n));
       if (!nums.length || invalidas.length)
-        return ctx.reply(`PÃƒÂ¡ginas disponibles: ${imagenes.map((i) => i.pagina).join(", ")}. EscribÃƒÂ­ los nÃƒÂºmeros o <code>todas</code>.`, { parse_mode: "HTML" });
+        return ctx.reply(`Páginas disponibles: ${imagenes.map((i) => i.pagina).join(", ")}. Escribí los números o <code>todas</code>.`, { parse_mode: "HTML" });
       paginasElegidas = nums;
     }
 
@@ -1031,9 +1047,9 @@ bot.on("message", async (ctx) => {
     return continuarAprendiendoDesdeConflicto(ctx, chatId);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Trabajar: confirmaciÃƒÂ³n de subida Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Trabajar: confirmación de subida ──
   if (sesion.fase === "trabajar_confirmando" && texto && !texto.startsWith("/")) {
-    if (!/^s[iÃƒÂ­]/i.test(texto) && texto.toLowerCase() !== "ok") {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
       resetSesion(chatId);
       return ctx.reply("Cancelado.");
     }
@@ -1046,30 +1062,30 @@ bot.on("message", async (ctx) => {
       return _mostrarGenerables(ctx, chatId);
     }
 
-    await ctx.reply("Ã¢ÂÂ³ Subiendo a controldocumentario.comÃ¢â‚¬Â¦");
+    await ctx.reply("⏳ Subiendo a controldocumentario.com…");
 
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
       if (!sesCD.ok) {
         resetSesion(chatId);
-        return ctx.reply(`Ã¢ÂÅ’ Error conectando a CD: ${sesCD.motivo}`);
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
       }
 
       let ok = 0, fail = 0;
       for (const grupo of gruposSubir) {
         const paginasOrdenadas = grupo.paginas.slice().sort((a, b) => a - b);
-        console.log(`[SUBIDA] Grupo "${grupo.entidad}": solicitando pÃƒÂ¡gs ${paginasOrdenadas.join(",")}`);
+        console.log(`[SUBIDA] Grupo "${grupo.entidad}": solicitando págs ${paginasOrdenadas.join(",")}`);
         const bufferGrupo = await cortarPaginas(buffer, paginasOrdenadas);
         for (const req of grupo.reqs) {
           const nombre = `${req.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
           try {
             await cdSubirArchivo(sesCD.page, req.href, bufferGrupo, nombre, req.nombre, req.entidad);
-            const entidad = grupo.entidad ? ` Ã¢â‚¬â€ ${escapeHtml(grupo.entidad)}` : "";
-            await ctx.reply(`Ã¢Å“â€¦ ${escapeHtml(req.nombre)}${entidad}`);
+            const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
+            await ctx.reply(`✅ ${escapeHtml(req.nombre)}${entidad}`);
             ok++;
           } catch (e) {
-            const entidad = grupo.entidad ? ` Ã¢â‚¬â€ ${escapeHtml(grupo.entidad)}` : "";
-            const caption = `Ã¢ÂÅ’ ${escapeHtml(req.nombre)}${entidad}: ${e.message}`;
+            const entidad = grupo.entidad ? ` — ${escapeHtml(grupo.entidad)}` : "";
+            const caption = `❌ ${escapeHtml(req.nombre)}${entidad}: ${e.message}`;
             if (e.screenshot) {
               await ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption });
             } else {
@@ -1084,9 +1100,9 @@ bot.on("message", async (ctx) => {
       let msgFinal = `Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`;
       if (todosOmitidos.length) {
         const omitStr = todosOmitidos
-          .map((r) => `  Ã¢â‚¬Â¢ ${escapeHtml(r.nombre)}${r.entidad ? ` Ã¢â‚¬â€ <i>${escapeHtml(r.entidad)}</i>` : ""}`)
+          .map((r) => `  • ${escapeHtml(r.nombre)}${r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : ""}`)
           .join("\n");
-        msgFinal += `\n\nÃ¢Å¡Â Ã¯Â¸Â Quedaron pendientes (perÃƒÂ­odo anterior, subir aparte):\n${omitStr}`;
+        msgFinal += `\n\n⚠️ Quedaron pendientes (período anterior, subir aparte):\n${omitStr}`;
       }
 
       if (!sinRequerido.length) {
@@ -1101,11 +1117,11 @@ bot.on("message", async (ctx) => {
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
-      return ctx.reply(`Ã¢ÂÅ’ Error durante la subida: ${e.message}`);
+      return ctx.reply(`❌ Error durante la subida: ${e.message}`);
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Trabajar: seleccionando cuÃƒÂ¡les generables procesar Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Trabajar: seleccionando cuáles generables procesar ──
   if (sesion.fase === "trabajar_generables" && texto && !texto.startsWith("/")) {
     if (/^(omitir|no)$/i.test(texto)) {
       resetSesion(chatId);
@@ -1120,7 +1136,7 @@ bot.on("message", async (ctx) => {
     } else {
       const indices = texto.split(",").map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n) && n >= 0 && n < sinRequerido.length);
       if (!indices.length)
-        return ctx.reply(`EscribÃƒÂ­ nÃƒÂºmeros del 1 al ${sinRequerido.length}, <code>todo</code> para todos, o <code>omitir</code>.`, { parse_mode: "HTML" });
+        return ctx.reply(`Escribí números del 1 al ${sinRequerido.length}, <code>todo</code> para todos, o <code>omitir</code>.`, { parse_mode: "HTML" });
       seleccionados = indices.map((i) => sinRequerido[i]);
     }
 
@@ -1128,7 +1144,7 @@ bot.on("message", async (ctx) => {
     return _procesarSiguienteGenerable(ctx, chatId);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Trabajar: el usuario elige el tipo manualmente Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Trabajar: el usuario elige el tipo manualmente ──
   if (sesion.fase === "trabajar_generando_tipo" && texto && !texto.startsWith("/")) {
     const TIPOS = ["empresa", "personal", "maquinas"];
     const n = parseInt(texto.trim());
@@ -1138,7 +1154,7 @@ bot.on("message", async (ctx) => {
       const t = texto.toLowerCase().trim();
       tipo = TIPOS.find((x) => t.includes(x)) || null;
     }
-    if (!tipo) return ctx.reply("EscribÃƒÂ­ <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (mÃƒÂ¡quinas).", { parse_mode: "HTML" });
+    if (!tipo) return ctx.reply("Escribí <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (máquinas).", { parse_mode: "HTML" });
 
     const { itemActual } = sesion;
     await guardarTipoMapeo(chatId, itemActual.tipo, tipo);
@@ -1146,7 +1162,7 @@ bot.on("message", async (ctx) => {
     return _generarItem(ctx, chatId, itemActual, tipo);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Trabajar: el usuario elige el sector manualmente Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Trabajar: el usuario elige el sector manualmente ──
   if (sesion.fase === "trabajar_generando_sector" && texto && !texto.startsWith("/")) {
     const { sectores, itemActual, tipoActual } = sesion;
     const n = parseInt(texto.trim());
@@ -1158,13 +1174,13 @@ bot.on("message", async (ctx) => {
     }
     if (!sectorElegido) {
       const lineas = sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
+      return ctx.reply(`Escribí un número del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
     }
     setSesion(chatId, { ...getSesion(chatId), fase: "trabajar_generando" });
     return _generarItem(ctx, chatId, itemActual, tipoActual, sectorElegido.value);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ /generar: usuario busca y elige el tipo a generar Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── /generar: usuario busca y elige el tipo a generar ──
   if (sesion.fase === "generar_buscando" && texto && !texto.startsWith("/")) {
     if (/^(cancelar|no)$/i.test(texto)) {
       resetSesion(chatId);
@@ -1179,36 +1195,36 @@ bot.on("message", async (ctx) => {
       const filtro = texto.toLowerCase();
       const filtrados = lista.filter((r) => r.nombre.toLowerCase().includes(filtro));
       if (!filtrados.length)
-        return ctx.reply(`No encontrÃƒÂ© nada con "<b>${escapeHtml(texto)}</b>". ProbÃƒÂ¡ con otra palabra.`, { parse_mode: "HTML" });
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra.`, { parse_mode: "HTML" });
       setSesion(chatId, { filtroActual: filtrados });
       const lineas = filtrados.map((r, i) => `${i + 1}. ${escapeHtml(r.nombre)}`);
       return ctx.reply(
-        `Ã°Å¸â€Â ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${lineas.join("\n")}\n\nEscribÃƒÂ­ el nÃƒÂºmero para generar.`,
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${lineas.join("\n")}\n\nEscribí el número para generar.`,
         { parse_mode: "HTML" }
       );
     }
 
     const idx = parseInt(texto.trim()) - 1;
     if (idx < 0 || idx >= listaActual.length)
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${listaActual.length}.`);
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}.`);
 
     const elegido = listaActual[idx];
     setSesion(chatId, { fase: "generar_confirmando", elegido, cdUser, cdPass });
     return ctx.reply(
-      `Ã‚Â¿Generar requerimiento <b>${escapeHtml(elegido.nombre)}</b>? (sÃƒÂ­ / no)`,
+      `¿Generar requerimiento <b>${escapeHtml(elegido.nombre)}</b>? (sí / no)`,
       { parse_mode: "HTML" }
     );
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ /generar: confirmaciÃƒÂ³n Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── /generar: confirmación ──
   if (sesion.fase === "generar_confirmando" && texto && !texto.startsWith("/")) {
-    if (!/^s[iÃƒÂ­]/i.test(texto) && texto.toLowerCase() !== "ok") {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
       resetSesion(chatId);
       return ctx.reply("Cancelado.");
     }
 
     const { elegido, cdUser, cdPass } = sesion;
-    await ctx.reply(`Ã¢ÂÂ³ Generando <b>${escapeHtml(elegido.nombre)}</b>Ã¢â‚¬Â¦`, { parse_mode: "HTML" });
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
 
     let tipoGenerar = null;
     try {
@@ -1218,7 +1234,7 @@ bot.on("message", async (ctx) => {
       tipoGenerar = await leerTipoMapeo(chatId, elegido.nombre);
 
       if (!tipoGenerar) {
-        await ctx.reply(`Ã°Å¸â€Â Buscando categorÃƒÂ­a de "<b>${escapeHtml(elegido.nombre)}</b>" en CDÃ¢â‚¬Â¦`, { parse_mode: "HTML" });
+        await ctx.reply(`🔍 Buscando categoría de "<b>${escapeHtml(elegido.nombre)}</b>" en CD…`, { parse_mode: "HTML" });
         const resultado = await cdScrapearTipoRequerimiento(sesCD.page, elegido.nombre);
         if (resultado) {
           tipoGenerar = resultado.tipo;
@@ -1229,69 +1245,69 @@ bot.on("message", async (ctx) => {
       if (!tipoGenerar) {
         setSesion(chatId, { fase: "generar_tipo_manual", elegido, cdUser, cdPass });
         return ctx.reply(
-          `No pude determinar la categorÃƒÂ­a de "<b>${escapeHtml(elegido.nombre)}</b>" automÃƒÂ¡ticamente.\n\nÃ‚Â¿A cuÃƒÂ¡l pertenece?\n1. empresa\n2. personal\n3. mÃƒÂ¡quinas`,
+          `No pude determinar la categoría de "<b>${escapeHtml(elegido.nombre)}</b>" automáticamente.\n\n¿A cuál pertenece?\n1. empresa\n2. personal\n3. máquinas`,
           { parse_mode: "HTML" }
         );
       }
 
       await cdGenerarRequerimiento(sesCD.page, tipoGenerar, elegido.nombre);
       resetSesion(chatId);
-      return ctx.reply(`Ã¢Å“â€¦ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
     } catch (e) {
       if (e.sectores) {
         const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
         setSesion(chatId, { fase: "generar_sector", elegido, cdUser, cdPass, tipo: tipoGenerar, sectores: e.sectores });
-        const msg = `Ã°Å¸ÂÂ­ Ã‚Â¿CuÃƒÂ¡l sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
+        const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
         if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
         return ctx.reply(msg, { parse_mode: "HTML" });
       }
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       console.error("[GENERAR-CMD]", e.message);
-      const caption = `Ã¢ÂÅ’ Error: ${e.message}`;
+      const caption = `❌ Error: ${e.message}`;
       if (e.screenshot)
         return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
       return ctx.reply(caption, { parse_mode: "HTML" });
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ /generar: tipo manual Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── /generar: tipo manual ──
   if (sesion.fase === "generar_tipo_manual" && texto && !texto.startsWith("/")) {
     const TIPOS = ["empresa", "personal", "maquinas"];
     const n = parseInt(texto.trim());
     let tipo = (n >= 1 && n <= 3) ? TIPOS[n - 1] : TIPOS.find((x) => texto.toLowerCase().includes(x)) || null;
     if (!tipo)
-      return ctx.reply("EscribÃƒÂ­ <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (mÃƒÂ¡quinas).", { parse_mode: "HTML" });
+      return ctx.reply("Escribí <code>1</code> (empresa), <code>2</code> (personal) o <code>3</code> (máquinas).", { parse_mode: "HTML" });
 
     const { elegido, cdUser, cdPass } = sesion;
     await guardarTipoMapeo(chatId, elegido.nombre, tipo);
-    await ctx.reply(`Ã¢ÂÂ³ Generando <b>${escapeHtml(elegido.nombre)}</b>Ã¢â‚¬Â¦`, { parse_mode: "HTML" });
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
 
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
       if (!sesCD.ok) throw new Error(sesCD.motivo);
       await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre);
       resetSesion(chatId);
-      return ctx.reply(`Ã¢Å“â€¦ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
     } catch (e) {
       if (e.sectores) {
         const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
         setSesion(chatId, { fase: "generar_sector", elegido, cdUser, cdPass, tipo, sectores: e.sectores });
-        const msg = `Ã°Å¸ÂÂ­ Ã‚Â¿CuÃƒÂ¡l sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
+        const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(elegido.nombre)}</b>"?\n\n${lineas.join("\n")}`;
         if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
         return ctx.reply(msg, { parse_mode: "HTML" });
       }
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
       console.error("[GENERAR-CMD]", e.message);
-      const caption = `Ã¢ÂÅ’ Error: ${e.message}`;
+      const caption = `❌ Error: ${e.message}`;
       if (e.screenshot)
         return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
       return ctx.reply(caption, { parse_mode: "HTML" });
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ /generar: sector manual Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── /generar: sector manual ──
   if (sesion.fase === "generar_sector" && texto && !texto.startsWith("/")) {
     const { sectores, elegido, cdUser, cdPass, tipo } = sesion;
     const n = parseInt(texto.trim());
@@ -1303,32 +1319,32 @@ bot.on("message", async (ctx) => {
     }
     if (!sectorElegido) {
       const lineas = sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
+      return ctx.reply(`Escribí un número del 1 al ${sectores.length}:\n${lineas.join("\n")}`, { parse_mode: "HTML" });
     }
-    await ctx.reply(`Ã¢ÂÂ³ Generando <b>${escapeHtml(elegido.nombre)}</b>Ã¢â‚¬Â¦`, { parse_mode: "HTML" });
+    await ctx.reply(`⏳ Generando <b>${escapeHtml(elegido.nombre)}</b>…`, { parse_mode: "HTML" });
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
       if (!sesCD.ok) throw new Error(sesCD.motivo);
       await cdGenerarRequerimiento(sesCD.page, tipo, elegido.nombre, sectorElegido.value);
       resetSesion(chatId);
-      return ctx.reply(`Ã¢Å“â€¦ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
+      return ctx.reply(`✅ <b>${escapeHtml(elegido.nombre)}</b> generado.`, { parse_mode: "HTML" });
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
-      const caption = `Ã¢ÂÅ’ Error: ${e.message}`;
+      const caption = `❌ Error: ${e.message}`;
       if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
       return ctx.reply(caption, { parse_mode: "HTML" });
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ ÃƒÅ¡nico: buscando requerimiento Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Único: buscando requerimiento ──
   if (sesion.fase === "unico_buscando_req" && texto && !texto.startsWith("/")) {
     const listaActual = sesion.filtroActual || sesion.requerimientos;
 
     if (texto.toLowerCase() === "lista") {
       setSesion(chatId, { filtroActual: sesion.requerimientos });
       return ctx.reply(
-        `Ã°Å¸â€œâ€¹ ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribÃƒÂ­ un nÃƒÂºmero para seleccionar, o texto para filtrar.`,
+        `📋 ${sesion.requerimientos.length} requerimientos:\n\n${formatearReqs(sesion.requerimientos)}\n\nEscribí un número para seleccionar, o texto para filtrar.`,
         { parse_mode: "HTML" }
       );
     }
@@ -1338,51 +1354,51 @@ bot.on("message", async (ctx) => {
       const filtro = texto.toLowerCase();
       const filtrados = sesion.requerimientos.filter((r) => r.nombre.toLowerCase().includes(filtro));
       if (!filtrados.length)
-        return ctx.reply(`No encontrÃƒÂ© nada con "<b>${escapeHtml(texto)}</b>". ProbÃƒÂ¡ con otra palabra, o escribÃƒÂ­ <code>lista</code>.`, { parse_mode: "HTML" });
+        return ctx.reply(`No encontré nada con "<b>${escapeHtml(texto)}</b>". Probá con otra palabra, o escribí <code>lista</code>.`, { parse_mode: "HTML" });
       setSesion(chatId, { filtroActual: filtrados });
       return ctx.reply(
-        `Ã°Å¸â€Â ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribÃƒÂ­ el nÃƒÂºmero para seleccionar.`,
+        `🔍 ${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}:\n\n${formatearReqs(filtrados, { mostrarTodos: true })}\n\nEscribí el número para seleccionar.`,
         { parse_mode: "HTML" }
       );
     }
 
     const idx = parseInt(texto.trim()) - 1;
     if (idx < 0 || idx >= listaActual.length)
-      return ctx.reply(`EscribÃƒÂ­ un nÃƒÂºmero del 1 al ${listaActual.length}.`);
+      return ctx.reply(`Escribí un número del 1 al ${listaActual.length}.`);
 
     const req = listaActual[idx];
     setSesion(chatId, { fase: "unico_confirmando", reqElegido: req });
-    const entidad = req.entidad ? ` Ã¢â‚¬â€ <i>${escapeHtml(req.entidad)}</i>` : "";
+    const entidad = req.entidad ? ` — <i>${escapeHtml(req.entidad)}</i>` : "";
     return ctx.reply(
-      `Ã°Å¸â€œâ€ž Vas a subir el PDF a:\n<b>${escapeHtml(req.nombre)}</b>${entidad}\n\nÃ‚Â¿Confirmar? (sÃƒÂ­ / no)`,
+      `📄 Vas a subir el PDF a:\n<b>${escapeHtml(req.nombre)}</b>${entidad}\n\n¿Confirmar? (sí / no)`,
       { parse_mode: "HTML" }
     );
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ ÃƒÅ¡nico: confirmando subida Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Único: confirmando subida ──
   if (sesion.fase === "unico_confirmando" && texto && !texto.startsWith("/")) {
-    if (!/^s[iÃƒÂ­]/i.test(texto) && texto.toLowerCase() !== "ok") {
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
       resetSesion(chatId);
       return ctx.reply("Cancelado.");
     }
 
     const { buffer, reqElegido, cdUser, cdPass } = sesion;
-    await ctx.reply("Ã¢ÂÂ³ Subiendo a controldocumentario.comÃ¢â‚¬Â¦");
+    await ctx.reply("⏳ Subiendo a controldocumentario.com…");
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
       if (!sesCD.ok) {
         resetSesion(chatId);
-        return ctx.reply(`Ã¢ÂÅ’ Error conectando a CD: ${sesCD.motivo}`);
+        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
       }
       const nombre = `${reqElegido.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
       await cdSubirArchivo(sesCD.page, reqElegido.href, buffer, nombre, reqElegido.nombre, reqElegido.entidad);
-      const entidad = reqElegido.entidad ? ` Ã¢â‚¬â€ ${escapeHtml(reqElegido.entidad)}` : "";
+      const entidad = reqElegido.entidad ? ` — ${escapeHtml(reqElegido.entidad)}` : "";
       resetSesion(chatId);
-      return ctx.reply(`Ã¢Å“â€¦ ${escapeHtml(reqElegido.nombre)}${entidad}`);
+      return ctx.reply(`✅ ${escapeHtml(reqElegido.nombre)}${entidad}`);
     } catch (e) {
       cdInvalidarSesion(chatId);
       resetSesion(chatId);
-      const caption = `Ã¢ÂÅ’ Error: ${e.message}`;
+      const caption = `❌ Error: ${e.message}`;
       if (e.screenshot) {
         return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption });
       }
@@ -1390,10 +1406,10 @@ bot.on("message", async (ctx) => {
     }
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Admin: mensaje sin reconocer Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Admin: mensaje sin reconocer ──
   if (ADMIN_IDS.includes(chatId)) return ctx.reply(tonteria());
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Registro con cÃƒÂ³digo Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Registro con código ──
   const cliente = await cargarCliente(chatId);
   if (cliente) return ctx.reply("No conozco esas palabras... solo manejo comandos y PDF :)");
 
@@ -1402,29 +1418,29 @@ bot.on("message", async (ctx) => {
     if (pendiente) {
       esperandoCodigo.delete(chatId);
       await registrarCliente(chatId, pendiente.nombre);
-      return ctx.reply(`Ã‚Â¡Bienvenido <b>${pendiente.nombre}</b>! Estoy listo para los PDF.`, {
+      return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! Estoy listo para los PDF.`, {
         parse_mode: "HTML",
       });
     }
-    return ctx.reply("ContraseÃƒÂ±a incorrecta.");
+    return ctx.reply("Contraseña incorrecta.");
   }
 
   esperandoCodigo.add(chatId);
-  return ctx.reply("No te conozco... Ã‚Â¿ContraseÃƒÂ±a?");
+  return ctx.reply("No te conozco... ¿Contraseña?");
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Generables: helpers de flujo Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Generables: helpers de flujo ────────────────────────────────────────────
 
 function _mostrarGenerables(ctx, chatId) {
   const { sinRequerido } = getSesion(chatId);
   const itemsStr = sinRequerido.map((item, i) => {
     const pags = item.paginas.slice().sort((a, b) => a - b).join(", ");
     const entidad = item.entidad ? ` (<i>${escapeHtml(item.entidad)}</i>)` : "";
-    return `${i + 1}. PÃƒÂ¡gs. ${pags} Ã¢â€ â€™ "<b>${escapeHtml(item.tipo)}</b>"${entidad}`;
+    return `${i + 1}. Págs. ${pags} → "<b>${escapeHtml(item.tipo)}</b>"${entidad}`;
   }).join("\n");
 
   return ctx.reply(
-    `Ã¢Å¡Â¡ <b>${sinRequerido.length} documento${sinRequerido.length !== 1 ? "s" : ""} identificado${sinRequerido.length !== 1 ? "s" : ""} sin requerido en CD:</b>\n\n${itemsStr}\n\nÃ‚Â¿Generamos los requeridos faltantes?\nEscribÃƒÂ­ los nÃƒÂºmeros (ej: <code>1,2</code>), <code>todo</code> para todos, o <code>omitir</code> para saltear.`,
+    `⚡ <b>${sinRequerido.length} documento${sinRequerido.length !== 1 ? "s" : ""} identificado${sinRequerido.length !== 1 ? "s" : ""} sin requerido en CD:</b>\n\n${itemsStr}\n\n¿Generamos los requeridos faltantes?\nEscribí los números (ej: <code>1,2</code>), <code>todo</code> para todos, o <code>omitir</code> para saltear.`,
     { parse_mode: "HTML" }
   );
 }
@@ -1435,7 +1451,7 @@ async function _procesarSiguienteGenerable(ctx, chatId) {
 
   if (indiceActual >= pendientes.length) {
     resetSesion(chatId);
-    return ctx.reply("Ã¢Å“â€¦ Procesamiento de requeridos completado.");
+    return ctx.reply("✅ Procesamiento de requeridos completado.");
   }
 
   const item = pendientes[indiceActual];
@@ -1445,14 +1461,14 @@ async function _procesarSiguienteGenerable(ctx, chatId) {
     return _generarItem(ctx, chatId, item, tipoGuardado);
   }
 
-  // Tipo no conocido Ã¢â€ â€™ scrape
-  await ctx.reply(`Ã°Å¸â€Â Buscando categorÃƒÂ­a de "<b>${escapeHtml(item.tipo)}</b>" en controldocumentarioÃ¢â‚¬Â¦`, { parse_mode: "HTML" });
+  // Tipo no conocido → scrape
+  await ctx.reply(`🔍 Buscando categoría de "<b>${escapeHtml(item.tipo)}</b>" en controldocumentario…`, { parse_mode: "HTML" });
 
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
     if (!sesCD.ok) {
       resetSesion(chatId);
-      return ctx.reply(`Ã¢ÂÅ’ Error conectando a CD: ${sesCD.motivo}`);
+      return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
     }
 
     const resultado = await cdScrapearTipoRequerimiento(sesCD.page, item.tipo);
@@ -1462,16 +1478,16 @@ async function _procesarSiguienteGenerable(ctx, chatId) {
       return _generarItem(ctx, chatId, item, resultado.tipo);
     }
 
-    // No encontrado Ã¢â€ â€™ pedir al usuario
+    // No encontrado → pedir al usuario
     setSesion(chatId, { ...sesion, fase: "trabajar_generando_tipo", itemActual: item });
     return ctx.reply(
-      `No pude determinar la categorÃƒÂ­a de "<b>${escapeHtml(item.tipo)}</b>" automÃƒÂ¡ticamente.\n\nÃ‚Â¿A cuÃƒÂ¡l pertenece?\n1. empresa\n2. personal\n3. mÃƒÂ¡quinas`,
+      `No pude determinar la categoría de "<b>${escapeHtml(item.tipo)}</b>" automáticamente.\n\n¿A cuál pertenece?\n1. empresa\n2. personal\n3. máquinas`,
       { parse_mode: "HTML" }
     );
   } catch (e) {
     console.error("[SCRAPE-TIPO]", e.message);
     setSesion(chatId, { ...sesion, indiceActual: indiceActual + 1 });
-    await ctx.reply(`Ã¢Å¡Â Ã¯Â¸Â Error buscando categorÃƒÂ­a para "<b>${escapeHtml(item.tipo)}</b>": ${e.message}\nSalteandoÃ¢â‚¬Â¦`, { parse_mode: "HTML" });
+    await ctx.reply(`⚠️ Error buscando categoría para "<b>${escapeHtml(item.tipo)}</b>": ${e.message}\nSalteando…`, { parse_mode: "HTML" });
     return _procesarSiguienteGenerable(ctx, chatId);
   }
 }
@@ -1481,16 +1497,16 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
   const { buffer, cdUser, cdPass, pendientes, indiceActual } = sesion;
   const entidadLabel = item.entidad ? ` (${escapeHtml(item.entidad)})` : "";
 
-  await ctx.reply(`Ã¢ÂÂ³ Generando requerido "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}Ã¢â‚¬Â¦`, { parse_mode: "HTML" });
+  await ctx.reply(`⏳ Generando requerido "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}…`, { parse_mode: "HTML" });
 
   try {
     const sesCD = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
     if (!sesCD.ok) throw new Error(sesCD.motivo);
 
     await cdGenerarRequerimiento(sesCD.page, tipo, item.tipo, sector);
-    await ctx.reply(`Ã¢Å“â€¦ Requerido generado. Subiendo documentoÃ¢â‚¬Â¦`);
+    await ctx.reply(`✅ Requerido generado. Subiendo documento…`);
 
-    // Re-read reqs and find the newly created one Ã¢â‚¬â€ retry once if CD is slow to reflect it
+    // Re-read reqs and find the newly created one — retry once if CD is slow to reflect it
     const baseNorm = (s) => String(s || "").toLowerCase().replace(/-\d{4}-\d+$/i, "").trim();
     const normEnt = (s) => String(s || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
     const porNombreYEntidad = (lista) => lista.filter(
@@ -1506,7 +1522,7 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
     let reqsNuevos = item.entidad ? porNombreYEntidad(reqs) : porNombreSolo(reqs);
     if (!reqsNuevos.length) {
       // La entidad en el doc (nombre de persona) puede no coincidir con la de CD (ej: patente).
-      // Buscamos solo por nombre Ã¢â‚¬â€ esto aplica cuando generamos con "Todos" (mÃƒÂºltiples entidades).
+      // Buscamos solo por nombre — esto aplica cuando generamos con "Todos" (múltiples entidades).
       reqsNuevos = porNombreSolo(reqs);
     }
     if (!reqsNuevos.length) {
@@ -1519,25 +1535,25 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
     console.log(`[GENERAR-POST] reqsNuevos: ${reqsNuevos.map(r => `"${r.nombre}"/"${r.entidad}"`).join(" | ") || "ninguno"}`);
 
     if (!reqsNuevos.length) {
-      await ctx.reply(`Ã¢Å¡Â Ã¯Â¸Â Requerido generado pero no lo encontrÃƒÂ© en CD. UsÃƒÂ¡ /unico para subirlo manualmente.`);
+      await ctx.reply(`⚠️ Requerido generado pero no lo encontré en CD. Usá /unico para subirlo manualmente.`);
     } else {
       const paginasOrdenadas = item.paginas.slice().sort((a, b) => a - b);
       const bufferItem = await cortarPaginas(buffer, paginasOrdenadas);
       for (const reqNuevo of reqsNuevos) {
         const nombre = `${reqNuevo.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
         await cdSubirArchivo(sesCD.page, reqNuevo.href, bufferItem, nombre, reqNuevo.nombre, reqNuevo.entidad);
-        await ctx.reply(`Ã¢Å“â€¦ ${escapeHtml(reqNuevo.nombre)}${reqNuevo.entidad ? ` (<i>${escapeHtml(reqNuevo.entidad)}</i>)` : ""}`, { parse_mode: "HTML" });
+        await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${reqNuevo.entidad ? ` (<i>${escapeHtml(reqNuevo.entidad)}</i>)` : ""}`, { parse_mode: "HTML" });
       }
     }
   } catch (e) {
     if (e.sectores) {
       const lineas = e.sectores.map((s, i) => `${i + 1}. ${escapeHtml(s.text)}`);
       setSesion(chatId, { ...getSesion(chatId), fase: "trabajar_generando_sector", itemActual: item, tipoActual: tipo, sectores: e.sectores });
-      const msg = `Ã°Å¸ÂÂ­ Ã‚Â¿CuÃƒÂ¡l sector para "<b>${escapeHtml(item.tipo)}</b>"?\n\n${lineas.join("\n")}`;
+      const msg = `🏭 ¿Cuál sector para "<b>${escapeHtml(item.tipo)}</b>"?\n\n${lineas.join("\n")}`;
       if (e.screenshot) return ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption: msg, parse_mode: "HTML" });
       return ctx.reply(msg, { parse_mode: "HTML" });
     }
-    const caption = `Ã¢ÂÅ’ Error con "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}: ${e.message}`;
+    const caption = `❌ Error con "<b>${escapeHtml(item.tipo)}</b>"${entidadLabel}: ${e.message}`;
     if (e.screenshot) {
       await ctx.replyWithPhoto(new InputFile(e.screenshot, "debug.jpg"), { caption, parse_mode: "HTML" });
     } else {
@@ -1549,16 +1565,16 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
   return _procesarSiguienteGenerable(ctx, chatId);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Vencimientos: helpers de formato Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Vencimientos: helpers de formato ────────────────────────────────────────
 
 function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
   const fraseDias = (d) => {
-    if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 dÃƒÂ­a" : `VENCIDO hace ${n} dÃƒÂ­as`; }
+    if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 día" : `VENCIDO hace ${n} días`; }
     if (d === 0) return "vence HOY";
-    if (d === 1) return "vence MAÃƒâ€˜ANA";
-    return `vence en ${d} dÃƒÂ­as`;
+    if (d === 1) return "vence MAÑANA";
+    return `vence en ${d} días`;
   };
-  const ico = (d) => d < 0 ? "Ã°Å¸â€Â´" : d <= 3 ? "Ã°Å¸Å¸Â " : "Ã°Å¸Å¸Â¡";
+  const ico = (d) => d < 0 ? "🔴" : d <= 3 ? "🟠" : "🟡";
 
   const generales = items.filter(i => i.tipo === "general");
   const empresa   = items.filter(i => i.tipo === "empresa");
@@ -1566,27 +1582,27 @@ function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
   const vehiculos = items.filter(i => i.tipo === "vehiculo");
 
   const partes = [
-    `Ã°Å¸â€â€ <b>Vencimientos prÃƒÂ³ximos</b>`,
-    `<i>Ã°Å¸â€Â´ vencido Ã‚Â· Ã°Å¸Å¸Â  hoy/1-3 dÃƒÂ­as Ã‚Â· Ã°Å¸Å¸Â¡ 4+ dÃƒÂ­as | empresa ${diasE}d Ã‚Â· personal ${diasP}d Ã‚Â· vehÃƒÂ­culos ${diasV}d</i>`,
+    `🔔 <b>Vencimientos próximos</b>`,
+    `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d</i>`,
   ];
 
   const bloque = (titulo, lista, sinNombre = false) => {
     partes.push(`\n${titulo}`);
-    if (!lista.length) { partes.push("Ã¢Å“â€¦ sin vencimientos"); return; }
+    if (!lista.length) { partes.push("✅ sin vencimientos"); return; }
     const ordenada = [...lista].sort((a, b) => a.diasFaltantes - b.diasFaltantes);
     for (const it of ordenada.slice(0, 60)) {
       partes.push(sinNombre
-        ? `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} Ã¢â‚¬â€ ${it.fecha} (${fraseDias(it.diasFaltantes)})`
-        : `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} Ã¢â‚¬â€ ${escapeHtml(it.nombre)} Ã¢â‚¬â€ ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+        ? `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+        : `${ico(it.diasFaltantes)} ${escapeHtml(it.columna)} — ${escapeHtml(it.nombre)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
       );
     }
-    if (ordenada.length > 60) partes.push(`Ã¢â‚¬Â¦y ${ordenada.length - 60} mÃƒÂ¡s.`);
+    if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
   };
 
-  bloque("Ã°Å¸â€œâ€¹ <b>GENERAL (proveedor)</b>", generales, true);
-  bloque("Ã°Å¸ÂÂ¢ <b>EMPRESA</b>", empresa);
-  bloque("Ã°Å¸â€˜Â· <b>PERSONAL</b>", personal);
-  bloque("Ã°Å¸Å¡â€” <b>VEHÃƒÂCULOS</b>", vehiculos);
+  bloque("📋 <b>GENERAL (proveedor)</b>", generales, true);
+  bloque("🏢 <b>EMPRESA</b>", empresa);
+  bloque("👷 <b>PERSONAL</b>", personal);
+  bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
   return partes.join("\n");
 }
 
@@ -1600,36 +1616,36 @@ function* _chunksVenc(msg, max = 3800) {
   if (chunk) yield chunk;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Parte mensual: helper de mensaje y cron Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Parte mensual: helper de mensaje y cron ─────────────────────────────────
 
 function _msgParteMensual(personal, maquinas) {
   const total = personal.actualizados + maquinas.actualizados;
   const lineas = [];
   const errores = [];
-  if (personal.actualizados > 0) lineas.push(`Ã°Å¸â€˜Â· Personal: ${personal.actualizados} empleado${personal.actualizados !== 1 ? "s" : ""}`);
-  if (maquinas.actualizados > 0) lineas.push(`Ã°Å¸Å¡â€” MÃƒÂ¡quinas: ${maquinas.actualizados} vehÃƒÂ­culo${maquinas.actualizados !== 1 ? "s" : ""}`);
-  if (personal?.ok === false && personal?.error) errores.push(`Ã¢Å¡Â Ã¯Â¸Â Personal: ${personal.error}`);
-  if (maquinas?.ok === false && maquinas?.error) errores.push(`Ã¢Å¡Â Ã¯Â¸Â MÃƒÂ¡quinas: ${maquinas.error}`);
-  if (!lineas.length && !errores.length) return "Ã¢Å“â€¦ Parte mensual: ya estaba todo al dÃƒÂ­a (0 cambios).";
+  if (personal.actualizados > 0) lineas.push(`👷 Personal: ${personal.actualizados} empleado${personal.actualizados !== 1 ? "s" : ""}`);
+  if (maquinas.actualizados > 0) lineas.push(`🚗 Máquinas: ${maquinas.actualizados} vehículo${maquinas.actualizados !== 1 ? "s" : ""}`);
+  if (personal?.ok === false && personal?.error) errores.push(`⚠️ Personal: ${personal.error}`);
+  if (maquinas?.ok === false && maquinas?.error) errores.push(`⚠️ Máquinas: ${maquinas.error}`);
+  if (!lineas.length && !errores.length) return "✅ Parte mensual: ya estaba todo al día (0 cambios).";
   const bloques = [];
-  if (lineas.length) bloques.push(`Ã¢Å“â€¦ Parte mensual grabado:\n${lineas.join("\n")}`);
-  else if (total === 0) bloques.push("Ã¢Å“â€¦ Parte mensual: sin cambios grabados.");
+  if (lineas.length) bloques.push(`✅ Parte mensual grabado:\n${lineas.join("\n")}`);
+  else if (total === 0) bloques.push("✅ Parte mensual: sin cambios grabados.");
   if (errores.length) bloques.push(errores.join("\n"));
   return bloques.join("\n\n");
 }
 
-// DÃƒÂ­a 1 de cada mes a las 08:00
+// Día 1 de cada mes a las 08:00
 cron.schedule("0 8 1 * *", async () => {
-  console.log("[CRON] Parte mensual automÃƒÂ¡tico iniciado");
+  console.log("[CRON] Parte mensual automático iniciado");
   const clientes = await listarTodosClientes();
   for (const cliente of clientes) {
     if (!cliente.cdUser || !cliente.cdPass) continue;
     const chatId = cliente.chatId;
     try {
-      await bot.api.sendMessage(chatId, "Ã¢ÂÂ³ Grabando parte mensual automÃƒÂ¡ticoÃ¢â‚¬Â¦");
+      await bot.api.sendMessage(chatId, "⏳ Grabando parte mensual automático…");
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
       if (!sesCD.ok) {
-        await bot.api.sendMessage(chatId, `Ã¢ÂÅ’ Parte mensual automÃƒÂ¡tico Ã¢â‚¬â€ error de login: ${sesCD.motivo}`);
+        await bot.api.sendMessage(chatId, `❌ Parte mensual automático — error de login: ${sesCD.motivo}`);
         continue;
       }
       const { personal, maquinas } = await cdGrabarParteMensual(sesCD.page);
@@ -1637,16 +1653,16 @@ cron.schedule("0 8 1 * *", async () => {
     } catch (e) {
       cdInvalidarSesion(chatId);
       console.error(`[CRON PARTE] ${chatId}: ${e.message}`);
-      await bot.api.sendMessage(chatId, `Ã¢ÂÅ’ Parte mensual automÃƒÂ¡tico fallÃƒÂ³: ${e.message}`).catch(() => {});
+      await bot.api.sendMessage(chatId, `❌ Parte mensual automático falló: ${e.message}`).catch(() => {});
     }
   }
-  console.log("[CRON] Parte mensual automÃƒÂ¡tico finalizado");
+  console.log("[CRON] Parte mensual automático finalizado");
 });
 
-// Todos los dÃƒÂ­as a las 13:46 Ã¢â‚¬â€ notifica solo si hay vencimientos prÃƒÂ³ximos
+// Todos los días a las 13:46 — notifica solo si hay vencimientos próximos
 cron.schedule("30 15 * * *", async () => {
   const inicio = Date.now();
-  console.log(`[CRON VENC] Ã¢â€“Â¶ Iniciado Ã¢â‚¬â€ ${new Date().toLocaleString("es-AR")}`);
+  console.log(`[CRON VENC] ▶ Iniciado — ${new Date().toLocaleString("es-AR")}`);
   const clientes = await listarTodosClientes();
   const total = clientes.length;
   let procesados = 0, sinCredenciales = 0, conAlertas = 0, errores = 0;
@@ -1655,7 +1671,7 @@ cron.schedule("30 15 * * *", async () => {
   for (const cliente of clientes) {
     if (!cliente.cdUser || !cliente.cdPass) {
       sinCredenciales++;
-      console.log(`[CRON VENC] Ã¢ÂÂ­ ${cliente.nombre || cliente.chatId} Ã¢â‚¬â€ sin credenciales CD`);
+      console.log(`[CRON VENC] ⏭ ${cliente.nombre || cliente.chatId} — sin credenciales CD`);
       continue;
     }
     const chatId = cliente.chatId;
@@ -1663,39 +1679,39 @@ cron.schedule("30 15 * * *", async () => {
     const diasV = cliente.diasVehiculos ?? 10;
     const diasE = cliente.diasEmpresa ?? 10;
     procesados++;
-    console.log(`[CRON VENC] Ã°Å¸â€Â [${procesados}/${total - sinCredenciales}] ${cliente.nombre || chatId} Ã¢â‚¬â€ diasE=${diasE} diasP=${diasP} diasV=${diasV}`);
+    console.log(`[CRON VENC] 🔍 [${procesados}/${total - sinCredenciales}] ${cliente.nombre || chatId} — diasE=${diasE} diasP=${diasP} diasV=${diasV}`);
     try {
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
       if (!sesCD.ok) {
-        console.log(`[CRON VENC] Ã¢ÂÅ’ ${cliente.nombre || chatId} Ã¢â‚¬â€ login fallido: ${sesCD.motivo}`);
+        console.log(`[CRON VENC] ❌ ${cliente.nombre || chatId} — login fallido: ${sesCD.motivo}`);
         errores++;
         continue;
       }
-      console.log(`[CRON VENC] Ã¢Å“â€¦ ${cliente.nombre || chatId} Ã¢â‚¬â€ sesiÃƒÂ³n OK, consultando vencimientosÃ¢â‚¬Â¦`);
+      console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — sesión OK, consultando vencimientos…`);
       const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
-      console.log(`[CRON VENC] Ã°Å¸â€œâ€¹ ${cliente.nombre || chatId} Ã¢â‚¬â€ ${items.length} item(s) encontrado(s)`);
+      console.log(`[CRON VENC] 📋 ${cliente.nombre || chatId} — ${items.length} item(s) encontrado(s)`);
       if (!items.length) {
-        console.log(`[CRON VENC] Ã¢Å“â€ ${cliente.nombre || chatId} Ã¢â‚¬â€ sin vencimientos prÃƒÂ³ximos, no se envÃƒÂ­a alerta`);
+        console.log(`[CRON VENC] ✔ ${cliente.nombre || chatId} — sin vencimientos próximos, no se envía alerta`);
         continue;
       }
       conAlertas++;
       const chunks = [..._chunksVenc(_buildMsgVencimientos(items, diasP, diasV, diasE))];
-      console.log(`[CRON VENC] Ã°Å¸â€œÂ¨ ${cliente.nombre || chatId} Ã¢â‚¬â€ enviando ${chunks.length} mensaje(s) con alertas`);
+      console.log(`[CRON VENC] 📨 ${cliente.nombre || chatId} — enviando ${chunks.length} mensaje(s) con alertas`);
       for (const chunk of chunks)
         await bot.api.sendMessage(chatId, chunk, { parse_mode: "HTML" });
-      console.log(`[CRON VENC] Ã¢Å“â€¦ ${cliente.nombre || chatId} Ã¢â‚¬â€ alerta enviada`);
+      console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — alerta enviada`);
     } catch (e) {
       cdInvalidarSesion(chatId);
       errores++;
-      console.error(`[CRON VENC] Ã°Å¸â€™Â¥ ${cliente.nombre || chatId}: ${e.message}`);
+      console.error(`[CRON VENC] 💥 ${cliente.nombre || chatId}: ${e.message}`);
     }
   }
 
   const duracion = ((Date.now() - inicio) / 1000).toFixed(1);
-  console.log(`[CRON VENC] Ã¢â€“Â  Finalizado en ${duracion}s Ã¢â‚¬â€ procesados=${procesados} alertas=${conAlertas} errores=${errores} sinCreds=${sinCredenciales}`);
+  console.log(`[CRON VENC] ■ Finalizado en ${duracion}s — procesados=${procesados} alertas=${conAlertas} errores=${errores} sinCreds=${sinCredenciales}`);
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Setup y arranque Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Setup y arranque ────────────────────────────────────────────────────────
 
 bot.catch((err) => console.error("[BOT ERROR]", err.message));
 
@@ -1705,8 +1721,8 @@ async function setupCommands() {
     { command: "miid", description: "Ver tu chat ID" },
     { command: "config", description: "Configurar credenciales de controldocumentario.com" },
     { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
-    { command: "vencimientos", description: "Ver vencimientos prÃƒÂ³ximos de documentos" },
-    { command: "partemes", description: "Grabar parte mensual (personal y mÃƒÂ¡quinas)" },
+    { command: "vencimientos", description: "Ver vencimientos próximos de documentos" },
+    { command: "partemes", description: "Grabar parte mensual (personal y máquinas)" },
     { command: "aprender", description: "Configurar mapeo de documentos" },
     { command: "listo", description: "Finalizar mapeo actual" },
     { command: "unico", description: "Subir un PDF directo a un requerimiento (sin IA)" },
@@ -1727,4 +1743,4 @@ inicializarPdf().catch(() => {});
 startWebServer();
 startTunnel();
 bot.start();
-console.log(`ControlBun corriendoÃ¢â‚¬Â¦ Admins: ${ADMIN_IDS.join(", ") || "Ã¢Å¡Â Ã¯Â¸Â NO CONFIGURADO"}`);
+console.log(`ControlBun corriendo… Admins: ${ADMIN_IDS.join(", ") || "⚠️ NO CONFIGURADO"}`);
