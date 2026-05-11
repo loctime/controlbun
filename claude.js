@@ -289,15 +289,17 @@ export async function matchearPaginasConReqs(nuevasPaginas, mapeos, reqsPendient
 TAREA: formar grupos de páginas por entidad y asignarlos a los requerimientos pendientes.
 
 PASO 1 — IDENTIFICAR ENTIDADES:
-Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla" — cada valor único es una entidad distinta.
-Si una página nueva no tiene patente visible → entidad_detectada: vacío. No asumir la entidad de la imagen de referencia.${nombreEmpresa ? `\nNombre de la empresa/proveedor: "${nombreEmpresa}". Si este nombre aparece en la página junto a una PATENTE, usá la patente como entidad (ignorá el nombre de empresa). Si aparece sin patente, dejá entidad_detectada vacío (es un documento de empresa, no personal).` : ""}
+Leé las páginas nuevas (NO las referencias del mapeo). Las páginas nuevas que muestran una patente de vehículo o nombre de empleado VISIBLE EN ESA PÁGINA son las páginas "ancla".
+IMPORTANTE: una sola página puede listar VARIAS patentes o empleados → cada valor único es una entidad distinta. Detectá TODAS las entidades visibles en la página.
+Si una página nueva no tiene patente ni nombre visible → entidades_detectadas: []. No asumir la entidad de la imagen de referencia.${nombreEmpresa ? `\nNombre de la empresa/proveedor: "${nombreEmpresa}". Si este nombre aparece en la página junto a PATENTES, usá las patentes como entidades (ignorá el nombre de empresa). Si aparece sin patente, dejá entidades_detectadas vacío (es un documento de empresa, no personal).` : ""}
 
 PASO 2 — COMPLETAR CADA GRUPO SEGÚN EL MAPEO:
 El mapeo de referencia es la autoridad: define exactamente qué tipos de página necesita cada entidad.
 Para cada entidad identificada en el Paso 1:
   a) Asigná las páginas ancla que la identifican directamente.
-  b) Revisá el mapeo: ¿cuantas paginas exactas son? Buscá esas páginas entre las restantes sin asignar, comparando visualmente con las imágenes de referencia del mapeo.
-  c) Si hay varias páginas candidatas para el mismo slot y son visualmente idénticas: asignalas en orden de aparición — la 1ra candidata (menor número de página) va a la 1ra entidad (la que apareció antes en el documento), la 2da candidata a la 2da entidad, etc.
+  b) Revisá el mapeo: ¿cuantas páginas exactas son? Buscá esas páginas entre las restantes sin asignar, comparando visualmente con las imágenes de referencia del mapeo.
+  c) Si una sola página contiene MÚLTIPLES entidades (por ej. lista varias patentes), esa página forma parte del grupo de CADA una de esas entidades — pueden compartir la misma página.
+  d) Si hay varias páginas candidatas para el mismo slot y son visualmente idénticas: asignalas en orden de aparición — la 1ra candidata (menor número de página) va a la 1ra entidad (la que apareció antes en el documento), la 2da candidata a la 2da entidad, etc.
 
 PASO 3 — VERIFICAR Y DESCARTAR:
 Cada grupo debe quedar exactamente como indica el mapeo. Si falta algún tipo de página para completar un grupo → descartarlo. El mapeo manda: no aceptar grupos incompletos.
@@ -313,42 +315,53 @@ Para cada grupo completo, encontrá TODOS los requerimientos pendientes que coin
 Respondé SOLO JSON válido, sin texto extra:
 {
   "paginas_clasificadas": [
-    { "pagina": 1, "tipo_detectado": "Pago del seguro técnico", "entidad_detectada": "" },
-    { "pagina": 2, "tipo_detectado": "Pago del seguro técnico", "entidad_detectada": "" },
-    { "pagina": 3, "tipo_detectado": "Pago del seguro automotor", "entidad_detectada": "UMM906" },
-    { "pagina": 4, "tipo_detectado": "Pago del seguro automotor", "entidad_detectada": "HTC822" }
+    { "pagina": 1, "tipo_detectado": "Pago del seguro técnico", "entidades_detectadas": [] },
+    { "pagina": 2, "tipo_detectado": "Pago del seguro técnico", "entidades_detectadas": [] },
+    { "pagina": 3, "tipo_detectado": "Pago del seguro automotor", "entidades_detectadas": ["UMM906"] },
+    { "pagina": 4, "tipo_detectado": "Pago del seguro automotor", "entidades_detectadas": ["HTC822"] },
+    { "pagina": 5, "tipo_detectado": "Pago responsabilidad civil", "entidades_detectadas": ["UMM906", "HTC822", "LVP434"] }
   ],
   "grupos": [
     { "entidad": "UMM906", "paginas": [1, 3], "reqs": [1, 2] },
-    { "entidad": "HTC822", "paginas": [2, 4], "reqs": [3, 4] }
+    { "entidad": "HTC822", "paginas": [2, 4], "reqs": [3, 4] },
+    { "entidad": "UMM906", "paginas": [5], "reqs": [5] },
+    { "entidad": "HTC822", "paginas": [5], "reqs": [6] },
+    { "entidad": "LVP434", "paginas": [5], "reqs": [7] }
   ],
   "sinAsignar": []
 }
 
-paginas_clasificadas: para CADA página nueva, el tipo detectado (escribe EXACTAMENTE el nombre del Tipo aprendido de la lista, ej: "F 931" — no describas con palabras propias) y la entidad detectada (patente/nombre, o vacío si no tiene).
+NOTA CLAVE: si una página tiene múltiples entidades (ej: página 5 con UMM906, HTC822, LVP434), creá un grupo SEPARADO por cada entidad, todos apuntando a la misma página. Así se sube el mismo doc a cada req correspondiente.
+
+paginas_clasificadas: para CADA página nueva, el tipo detectado (escribe EXACTAMENTE el nombre del Tipo aprendido de la lista, ej: "F 931" — no describas con palabras propias) y las entidades detectadas como array (vacío [] si no tiene).
 reqs: números 1-based de la lista de reqs pendientes.
 sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron de grupos descartados.`,
   });
 
   const resp = await llamarClaude({
     model: MODELO,
-    max_tokens: 2000,
+    max_tokens: 8192,
     messages: [{ role: "user", content }],
   });
 
   const textoResp = (resp?.content?.[0]?.text || "").trim();
-  console.log(`[MATCH] Respuesta Claude (${textoResp.length} chars):`, textoResp.slice(0, 400));
+  console.log(`[MATCH] Respuesta Claude (${textoResp.length} chars):`, textoResp.slice(0, 800));
 
   let parsed = null;
   try {
     const bloqueJson = textoResp.match(/```json\s*([\s\S]*?)```/i);
     parsed = JSON.parse(bloqueJson ? bloqueJson[1].trim() : textoResp);
-  } catch {
+  } catch (e1) {
     const m = textoResp.match(/\{[\s\S]*\}/);
-    if (m) try { parsed = JSON.parse(m[0]); } catch {}
+    if (m) try { parsed = JSON.parse(m[0]); } catch (e2) {
+      console.log(`[MATCH] JSON inválido — respuesta truncada? (${textoResp.length} chars, fin: "${textoResp.slice(-60)}")`);
+    }
   }
 
-  if (!parsed?.paginas_clasificadas?.length) return null;
+  if (!parsed?.paginas_clasificadas?.length) {
+    console.log(`[MATCH] Sin paginas_clasificadas — parsed=${JSON.stringify(parsed)?.slice(0, 200)}`);
+    return null;
+  }
 
   // Normaliza el nombre quitando el sufijo de período "-YYYY-N" para comparar.
   const baseNombre = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
@@ -358,6 +371,26 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   const tipoDetectadoPorPag = new Map(
     (parsed.paginas_clasificadas || []).map((pc) => [pc.pagina, baseNombre(pc.tipo_detectado || "")])
   );
+  // Map de número de página → entidades detectadas (soporte para entidades_detectadas[] y entidad_detectada)
+  const entidadesPorPag = new Map(
+    (parsed.paginas_clasificadas || []).map((pc) => {
+      let ents = [];
+      if (Array.isArray(pc.entidades_detectadas)) {
+        ents = pc.entidades_detectadas.map(e => String(e || "").trim()).filter(Boolean);
+      } else if (pc.entidad_detectada) {
+        ents = [String(pc.entidad_detectada).trim()].filter(Boolean);
+      }
+      return [pc.pagina, ents];
+    })
+  );
+
+  // Log entidades detectadas por página
+  for (const [pag, ents] of entidadesPorPag) {
+    if (ents.length > 1) console.log(`[MATCH] Pág ${pag}: múltiples entidades → [${ents.join(", ")}]`);
+  }
+
+  // Set de tipos conocidos por nombre de req (fallback cuando el mapeo no tiene imagen de referencia)
+  const tiposPorReqNombre = new Set(reqsPendientes.map(r => baseNombre(r.nombre)));
 
   const grupos = [];
   const sinAsignarExtra = [];
@@ -365,10 +398,10 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   for (const g of parsed.grupos) {
     if (!g.paginas?.length) continue;
 
-    // 1. Verificar si el tipo fue reconocido desde el mapeo
+    // 1. Verificar si el tipo fue reconocido desde el mapeo visual O desde el nombre de un req
     const tiposAprendidosEnGrupo = g.paginas
       .map((p) => tipoDetectadoPorPag.get(p))
-      .filter((t) => t && paginasPorTipo.has(t));
+      .filter((t) => t && (paginasPorTipo.has(t) || tiposPorReqNombre.has(t)));
 
     if (!tiposAprendidosEnGrupo.length) {
       const tiposRaw = g.paginas.map((p) => tipoDetectadoPorPag.get(p) || "?").join(", ");
@@ -379,7 +412,8 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
 
     // 2. Validar página count según el tipo detectado (primer tipo aprendido del grupo)
     const tipoBase = tiposAprendidosEnGrupo[0];
-    const esperadas = paginasPorTipo.get(tipoBase) || 1;
+    // Si no hay mapeo visual, asumir 1 página por documento
+    const esperadas = paginasPorTipo.get(tipoBase) ?? 1;
     const paginasGrupo = g.paginas.length;
 
     if (paginasGrupo < esperadas) {
@@ -465,18 +499,18 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   const tipoAPages = new Map();
   for (const pageNum of sinAsignarRaw) {
     const tipoBase = tipoDetectadoPorPag.get(pageNum);
-    if (!tipoBase || !paginasPorTipo.has(tipoBase)) continue; // tipo desconocido → queda en sinAsignar
+    if (!tipoBase || (!paginasPorTipo.has(tipoBase) && !tiposPorReqNombre.has(tipoBase))) continue; // tipo desconocido → queda en sinAsignar
     if (!tipoAPages.has(tipoBase)) tipoAPages.set(tipoBase, []);
     tipoAPages.get(tipoBase).push(pageNum);
   }
 
   const sinAsignar = sinAsignarRaw.filter(p => {
     const t = tipoDetectadoPorPag.get(p);
-    return !t || !paginasPorTipo.has(t); // solo los que no tienen tipo conocido
+    return !t || (!paginasPorTipo.has(t) && !tiposPorReqNombre.has(t)); // solo los que no tienen tipo conocido
   });
 
   for (const [tipoBase, paginas] of tipoAPages) {
-    const esperadas = paginasPorTipo.get(tipoBase) || 1;
+    const esperadas = paginasPorTipo.get(tipoBase) ?? 1;
     if (paginas.length < esperadas) {
       console.log(`[MATCH] Empresa tipo "${tipoBase}": ${paginas.length}/${esperadas} págs — incompleto, sinAsignar`);
       sinAsignar.push(...paginas);
