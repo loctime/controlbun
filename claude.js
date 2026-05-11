@@ -586,9 +586,22 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
     grupos.push({ entidad: String(item.entidad || ""), paginas: item.paginas, reqs: reqsFinal, omitidos });
   }
 
+  // Deduplicar grupos que subirían exactamente las mismas páginas al mismo req
+  // (puede pasar cuando el Rescue asigna múltiples entidades detectadas al mismo req único en CD)
+  const seenUploads = new Set();
+  const gruposDedup = grupos.filter(g => {
+    const key = `${g.paginas.slice().sort().join(",")}|${g.reqs.map(r => r.href || r.nombre).sort().join(",")}`;
+    if (seenUploads.has(key)) {
+      console.log(`[MATCH] Dedup: grupo "${g.entidad}" omitido (mismas páginas+reqs ya incluidos)`);
+      return false;
+    }
+    seenUploads.add(key);
+    return true;
+  });
+
   const paginasClasificadas = Array.isArray(parsed.paginas_clasificadas) ? parsed.paginas_clasificadas : [];
-  if (grupos.length || sinRequeridoFinal.length || sinAsignar.length) {
-    return { grupos, sinAsignar, sinRequerido: sinRequeridoFinal, paginasClasificadas };
+  if (gruposDedup.length || sinRequeridoFinal.length || sinAsignar.length) {
+    return { grupos: gruposDedup, sinAsignar, sinRequerido: sinRequeridoFinal, paginasClasificadas };
   }
   return null;
 }

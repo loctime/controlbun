@@ -692,7 +692,7 @@ bot.on("message", async (ctx) => {
         : `📋 <b>Sin coincidencias directas con requeridos pendientes.</b>`;
 
       const pregunta = resultado.grupos.length
-        ? `¿Confirmar y subir todo? (sí / no)`
+        ? `¿Confirmar y subir? (sí = todo · no = cancelar · número${resultado.grupos.length > 1 ? "s" : ""} = elegir, ej: <b>1</b> o <b>1 2</b>)`
         : `¿Procedemos a generar los requeridos faltantes? (sí / no)`;
 
       return ctx.reply(
@@ -1049,12 +1049,34 @@ bot.on("message", async (ctx) => {
 
   // ── Trabajar: confirmación de subida ──
   if (sesion.fase === "trabajar_confirmando" && texto && !texto.startsWith("/")) {
-    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+    const esNo = /^no$/i.test(texto.trim()) || /^cancel/i.test(texto.trim());
+    if (esNo) {
       resetSesion(chatId);
       return ctx.reply("Cancelado.");
     }
 
     const { buffer, gruposSubir, sinRequerido = [], cdUser, cdPass } = sesion;
+
+    // Detectar si el usuario escribió números: "2", "1 2", "1,2", etc.
+    const numerosTexto = texto.trim().match(/^[\d\s,]+$/);
+    if (numerosTexto && !/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+      const indices = [...new Set(
+        texto.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n) && n >= 1 && n <= gruposSubir.length)
+      )];
+      if (!indices.length) {
+        return ctx.reply(`Número inválido. Escribí sí, no, o un número del 1 al ${gruposSubir.length}.`);
+      }
+      // Reemplazar gruposSubir en sesión con solo los seleccionados
+      const gruposSeleccionados = indices.map(i => gruposSubir[i - 1]);
+      setSesion(chatId, { ...sesion, gruposSubir: gruposSeleccionados, fase: "trabajar_confirmando" });
+      const nombresGrupos = gruposSeleccionados.map((g, i) => `${indices[i]}. ${g.entidad || "Sin entidad"}`).join(", ");
+      await ctx.reply(`Subiendo solo: ${nombresGrupos}. ¿Confirmar? (sí / no)`);
+      return;
+    }
+
+    if (!/^s[ií]/i.test(texto) && texto.toLowerCase() !== "ok") {
+      return ctx.reply(`No entendí. Escribí sí, no, o un número del 1 al ${gruposSubir.length}.`);
+    }
 
     if (!gruposSubir.length && sinRequerido.length) {
       // Nothing to upload now, go straight to generables
