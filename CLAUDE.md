@@ -336,7 +336,7 @@ WEB_URL=https://mapeos.controldoc.app
 | Flujo /vencimientos (próximos vencimientos + screenshots) | ✅ Implementado |
 | Flujo /partemes (parte mensual manual) | ✅ Implementado |
 | Cron parte mensual (día 1 de cada mes, 08:00, todos los clientes) | ✅ Implementado |
-| Cron vencimientos diario (13:00, notifica solo si hay items) | ✅ Implementado (cambiar a 08:00 al migrar a VPS) |
+| Cron vencimientos diario (08:00, notifica solo si hay items) | ✅ Implementado |
 | cd.js: login (con caché de sesión 25 min) | ✅ Funcionando |
 | cd.js: leer tipos de reqs (dropdown completo) | ✅ Funcionando |
 | cd.js: leer reqs con entidades (para /trabajar) | ✅ Funcionando |
@@ -395,6 +395,25 @@ CD tiene un retraso antes de que el botón "Buscar" esté listo. `_clickBuscarYE
 - **No navegar directamente a `BandejaDetalle.aspx` con `page.goto`** si el href no tiene `noCache=` — CD devuelve HTTP 500. Siempre pasar por `Bandeja.aspx` + `fnDetalle(ID)`
 - No intentar hacer click en las filas de la bandeja para navegar — `__doPostBack` de ASP.NET falla con índices desfasados tras subidas anteriores
 - **No usar fuzzy matching en cdScrapearTipoRequerimiento ni cdGenerarRequerimiento** — los nombres vienen de la lista propia de CD, siempre hay match exacto. El fuzzy causaba seleccionar "Pago del seguro automotor" en vez de "Seguro automotor"
+
+## Producción — VPS Contabo
+
+| Campo | Valor |
+|---|---|
+| IP | 5.189.136.177 |
+| Path del proyecto | `/opt/controlbun` |
+| Process manager | PM2 (`pm2 status`, `pm2 logs controlbun`) |
+| Panel web | https://mapeos.controldoc.app |
+| Autostart | pm2-root.service (systemd) |
+
+**Deploy tras un push:**
+```bash
+cd /opt/controlbun && git pull && pm2 restart controlbun
+```
+
+**Carpetas fuera de git** (transferir por SFTP si cambian):
+- `clientes/` — JSONs con credenciales de cada cliente
+- `mapeos/` — mapeos aprendidos por usuario
 
 ## Para continuar / debug
 
