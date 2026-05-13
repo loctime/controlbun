@@ -1681,8 +1681,8 @@ cron.schedule("0 8 1 * *", async () => {
   console.log("[CRON] Parte mensual automático finalizado");
 });
 
-// Todos los días a las 13:46 — notifica solo si hay vencimientos próximos
-cron.schedule("30 15 * * *", async () => {
+// Todos los días a las 08:00 — notifica solo si hay vencimientos próximos
+cron.schedule("0 8 * * *", async () => {
   const inicio = Date.now();
   console.log(`[CRON VENC] ▶ Iniciado — ${new Date().toLocaleString("es-AR")}`);
   const clientes = await listarTodosClientes();
