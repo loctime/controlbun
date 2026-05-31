@@ -10,11 +10,28 @@ export function startTunnel() {
   }
 
   function launch() {
-    proc = spawn("cloudflared", ["tunnel", "run", "--token", token], { stdio: "pipe" });
+    // --protocol http2: QUIC daba jitter constante (timeouts UDP, MTU mismatch entre
+    // Contabo Frankfurt y Cloudflare edge). HTTP/2 es más estable bajo redes ruidosas
+    // a costo de ~10-30ms de latencia adicional. Cloudflare lo recomienda en esos casos.
+    proc = spawn("cloudflared", ["tunnel", "run", "--protocol", "http2", "--token", token], { stdio: "pipe" });
     proc.stderr.on("data", (d) => {
       const line = d.toString().trim();
-      const skip = line.includes("DNS local resolver") || line.includes("system root certificate") || line.includes("ICMP proxy");
-      if (!skip && (line.includes("Registered") || line.includes("ERR") || line.includes("error") || line.includes("disconnected"))) {
+      // Skipear ruido transitorio de cloudflared. Dejamos pasar solo señales útiles:
+      // Registered/Unregistered (conexión sube/baja), errores que NO sean QUIC/datagram
+      // transitorios, y disconnected definitivos.
+      const skipTransient =
+        line.includes("DNS local resolver") ||
+        line.includes("system root certificate") ||
+        line.includes("ICMP proxy") ||
+        line.includes("ping_group_range") ||
+        line.includes("failed to run the datagram handler") ||
+        line.includes("failed to accept incoming stream requests") ||
+        line.includes("Failed to dial a quic connection") ||
+        line.includes("Connection terminated") ||
+        line.includes("failed to serve tunnel connection") ||
+        line.includes("Serve tunnel error");
+      if (skipTransient) return;
+      if (line.includes("Registered") || line.includes("Unregistered") || line.includes("ERR") || line.includes("error") || line.includes("disconnected")) {
         console.log(`[TUNNEL] ${line}`);
       }
     });
