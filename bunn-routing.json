@@ -1,0 +1,9 @@
+{
+  "_comentario": "Routing chatId → Bunn-N. Mientras 'mapping' esté vacío todo va a 'default' (bunn-1) y el sistema se comporta igual que antes. Para activar multi-Bunn, agregá entradas en 'mapping' por chatId.",
+  "default": "bunn-1",
+  "bunns": [
+    { "name": "bunn-1", "root": "/opt/bunn/delegado",   "tmuxSession": "bunn-agent",   "user": "bunn" },
+    { "name": "bunn-2", "root": "/opt/bunn-2/delegado", "tmuxSession": "bunn-2-agent", "user": "bunn-2" }
+  ],
+  "mapping": {}
+}

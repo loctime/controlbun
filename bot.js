@@ -9,9 +9,71 @@ import { matchearPaginasConReqs, setAiProvider, getCurrentProviderLabel } from "
 import { tonteria } from "./tonterias.js";
 import { startWebServer, generarTokenWeb } from "./web.js";
 import { startTunnel } from "./tunnel.js";
+import { isDelegated, enterDelegated, closeDelegated, appendInbox, saveUpload, readState, findActiveDelegated } from "./delegado-router.js";
+import { readCache, writeCache, saveScreenshots, invalidateCache, TTL_PENDIENTES, TTL_VENCIMIENTOS } from "./cache.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
 const ADMIN_IDS = (process.env.ADMIN_CHAT_ID || "").split(",").map(s => s.trim()).filter(Boolean);
+
+// ─── Middleware: modo delegado (DEBE ir antes de cualquier bot.command/bot.on) ─
+// Si Bunn está atendiendo a este chat, captura todo (texto + PDF + comandos) y
+// lo deja en su inbox. bot.js NO responde — el cliente solo ve los mensajes de
+// Bunn (que usa el mismo token de @ControlBunBot via send-as-controlbun.js).
+//
+// Escape de emergencia: /destrancar (solo admins) fuerza la salida del modo.
+bot.use(async (ctx, next) => {
+  if (!ctx.message || !ctx.chat) return next();
+  const chatId = String(ctx.chat.id);
+
+  let delegated;
+  try {
+    delegated = await isDelegated(chatId);
+  } catch (e) {
+    console.error("[delegado] isDelegated error:", e.message);
+    return next();
+  }
+  if (!delegated) return next();
+
+  if (ctx.message.text === "/destrancar" && ADMIN_IDS.includes(chatId)) {
+    await closeDelegated(chatId, "destrabado por admin");
+    return ctx.reply("✅ Modo delegado cerrado. Volvés a hablar con controlbun.");
+  }
+
+  // Cliente cierra el modo delegado voluntariamente.
+  if (ctx.message.text === "/listo") {
+    await closeDelegated(chatId, "cerrado por cliente con /listo");
+    return ctx.reply("Listo, modo libre cerrado. Si necesitás comandos rápidos: /pendientes /vencimientos /partemes /aprender.");
+  }
+
+  try {
+    if (ctx.message.document?.mime_type === "application/pdf") {
+      const file = await ctx.getFile();
+      const url = `https://api.telegram.org/file/bot${process.env.TG_TOKEN}/${file.file_path}`;
+      const res = await fetch(url);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const filename = ctx.message.document.file_name || "doc.pdf";
+      const savedFile = await saveUpload(chatId, buffer, filename);
+      await appendInbox(chatId, {
+        kind: "pdf",
+        file: savedFile,
+        original_filename: filename,
+        text: ctx.message.caption || "",
+      });
+    } else if (ctx.message.text) {
+      await appendInbox(chatId, { kind: "text", text: ctx.message.text });
+    } else {
+      // Otros tipos (foto, voz, etc.) — placeholder para que Bunn sepa que
+      // llegó algo no soportado y pueda pedirle al cliente que reenvíe.
+      await appendInbox(chatId, {
+        kind: "text",
+        text: "(el cliente mandó un mensaje de tipo no soportado todavía: foto/audio/video)",
+      });
+    }
+  } catch (e) {
+    console.error("[delegado] error guardando en inbox:", e.message);
+  }
+  // Sin respuesta — Bunn habla por su lado.
+});
 
 // ─── Estado de sesión por usuario (en memoria) ───────────────────────────────
 
@@ -138,6 +200,48 @@ bot.command("miid", (ctx) =>
   ctx.reply(`Tu chat ID es: <code>${ctx.chat.id}</code>`, { parse_mode: "HTML" })
 );
 
+// /bunn — DESACTIVADO temporalmente (2026-05-30) por decisión de loctime.
+// La implementación original entraba al modo delegado (Bunn maneja la conversación
+// con Playwright MCP). Quedó comentada abajo para re-habilitación rápida.
+// El trigger automático por PDF sigue activo — solo se silencia el comando manual.
+bot.command("bunn", async (ctx) => {
+  return ctx.reply("Sistema inteligente desactivado temporalmente.");
+});
+
+// --- Implementación original (re-habilitar reemplazando el handler de arriba) ---
+// bot.command("bunn", async (ctx) => {
+//   const chatId = String(ctx.chat.id);
+//   const cliente = await cargarCliente(chatId);
+//   if (!cliente) return ctx.reply("No tengo tu cuenta registrada. Usá /nuevocliente para arrancar.");
+//   const activo = await findActiveDelegated(chatId);
+//   if (activo && activo.chatId !== chatId) {
+//     return ctx.reply("⏳ Estoy con otro cliente justo ahora. Probá de nuevo en un par de minutos.");
+//   }
+//   try {
+//     await enterDelegated(chatId, {
+//       trigger: "/bunn",
+//       cliente_nombre: cliente.nombre || "",
+//       cd_user: cliente.cdUser || "",
+//       cd_pass: cliente.cdPass || "",
+//       nombre_empresa: cliente.nombreEmpresa || "",
+//     });
+//     await appendInbox(chatId, {
+//       kind: "text",
+//       text: "/bunn — cliente pidió modo libre",
+//       meta: {
+//         entry: "trigger",
+//         cliente_nombre: cliente.nombre || "",
+//         cd_user: cliente.cdUser || "",
+//         nombre_empresa: cliente.nombreEmpresa || "",
+//       },
+//     });
+//     return ctx.reply("📥 Activando inteligencia flexible, dame un momento y te escribo apenas esté lista para charlar. Cuando termines la conversación escribí /listo.");
+//   } catch (e) {
+//     console.error("[BUNN COMMAND]", e.message);
+//     return ctx.reply(`❌ No pude activar el modo: ${e.message}`);
+//   }
+// });
+
 bot.command("web", async (ctx) => {
   const chatId = String(ctx.chat.id);
   const cliente = await cargarCliente(chatId);
@@ -167,13 +271,72 @@ bot.command("modelo", async (ctx) => {
   return ctx.reply("❌ Opciones: <code>/modelo claude</code> o <code>/modelo gemini</code>", { parse_mode: "HTML" });
 });
 
+// Cache del username del bot para armar deep-links. Lleno bajo demanda.
+let _botUsername = null;
+async function getBotUsername() {
+  if (_botUsername) return _botUsername;
+  try {
+    const me = await bot.api.getMe();
+    _botUsername = me.username;
+  } catch (e) {
+    console.error("[getBotUsername] error:", e.message);
+  }
+  return _botUsername;
+}
+
 bot.command("nuevocliente", async (ctx) => {
   if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
   const match = ctx.match?.trim().match(/^(\S+)\s+(\S+)$/);
   if (!match) return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
   const nombre = match[1].replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
-  await guardarPendiente(match[2].trim(), nombre);
-  return ctx.reply(`✅ Código <code>${match[2]}</code> listo para <b>${nombre}</b>.`, { parse_mode: "HTML" });
+  const codigo = match[2].trim();
+
+  // El payload de un deep-link de Telegram solo admite [A-Za-z0-9_-] hasta 64 chars.
+  const codigoValidoParaLink = /^[A-Za-z0-9_-]{1,64}$/.test(codigo);
+
+  await guardarPendiente(codigo, nombre);
+
+  let respuesta = `✅ Código <code>${codigo}</code> listo para <b>${nombre}</b>.`;
+  if (codigoValidoParaLink) {
+    const username = await getBotUsername();
+    if (username) {
+      const link = `https://t.me/${username}?start=${codigo}`;
+      const primerNombre = nombre.split(/\s+/)[0] || nombre;
+      // Bloque <pre> = Telegram lo muestra como código con "tap para copiar".
+      // Pegás el bloque entero en WhatsApp/mail/lo que sea y el link queda funcional.
+      const mensajeParaCliente = `Hola ${primerNombre}! 👋 Iniciate en ControlBun y gestioná Control Documentario desde tu celular: verificá vencimientos, subí documentación y consultá tus requerimientos pendientes, todo desde Telegram.\n\n${link}`;
+      respuesta += `\n\n📋 Mensaje listo para mandarle (tocá el bloque para copiar):\n<pre>${mensajeParaCliente}</pre>`;
+    }
+  } else {
+    respuesta += `\n\n⚠️ El código tiene caracteres que Telegram no permite en deep-links (solo A-Z, a-z, 0-9, guion y guion bajo, máx 64). El cliente va a tener que escribirlo a mano.`;
+  }
+  return ctx.reply(respuesta, { parse_mode: "HTML", disable_web_page_preview: true });
+});
+
+// /start con payload — usado por el deep-link generado en /nuevocliente.
+// Si vino con código, consume el pendiente y registra al cliente directo.
+// Si vino sin código, da un mensaje genérico de bienvenida.
+bot.command("start", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const payload = (ctx.match || "").trim();
+
+  const yaCliente = await cargarCliente(chatId);
+  if (yaCliente) {
+    return ctx.reply(`Ya estás registrado como <b>${yaCliente.nombre}</b>. Mandame un PDF o usá /pendientes, /vencimientos, /partemes.`, { parse_mode: "HTML" });
+  }
+
+  if (!payload) {
+    esperandoCodigo.add(chatId);
+    return ctx.reply("Hola 👋 No te conozco todavía. ¿Cuál es tu contraseña de registro?");
+  }
+
+  const pendiente = await consumirPendiente(payload);
+  if (!pendiente) {
+    return ctx.reply("❌ Ese código no es válido o ya fue usado. Pedile uno nuevo a tu administrador.");
+  }
+  await registrarCliente(chatId, pendiente.nombre);
+  esperandoCodigo.delete(chatId);
+  return ctx.reply(`¡Bienvenido <b>${pendiente.nombre}</b>! Ahora cargá tus credenciales de control documentario con /config.`, { parse_mode: "HTML" });
 });
 
 bot.command("config", async (ctx) => {
@@ -194,34 +357,50 @@ bot.command("pendientes", async (ctx) => {
   if (!cliente.cdUser || !cliente.cdPass)
     return ctx.reply("❌ No tenés cuenta configuradas. Usá /config primero.");
 
-  await ctx.reply("⏳ Consultando requerimientos pendientes…");
-  try {
-    const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
-    if (!sesCD.ok) {
-      if (sesCD.screenshot) {
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
-      }
-      return ctx.reply(`❌ ${sesCD.motivo}`);
+  // Cache compartido con Bunn — si está fresco (< 6h) servimos eso.
+  const force = (ctx.match || "").trim().toLowerCase() === "force";
+  let reqs;
+  let fromCache = false;
+  if (!force) {
+    const cached = readCache(chatId, "pendientes", TTL_PENDIENTES);
+    if (cached) {
+      reqs = cached.data;
+      fromCache = true;
     }
-
-    const reqs = await cdLeerRequerimientos(sesCD.page);
-    if (!reqs.length)
-      return ctx.reply("✅ No hay requerimientos pendientes en CD.");
-
-    const lineas = reqs.map((r, i) => {
-      const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
-      return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
-    });
-
-    return ctx.reply(
-      `📋 <b>${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}:</b>\n\n${lineas.join("\n")}`,
-      { parse_mode: "HTML" }
-    );
-  } catch (e) {
-    cdInvalidarSesion(chatId);
-    console.error("[PENDIENTES]", e.message);
-    return ctx.reply(`❌ Error: ${e.message}`);
   }
+
+  if (!fromCache) {
+    await ctx.reply("⏳ Consultando requerimientos pendientes…");
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) {
+        if (sesCD.screenshot) {
+          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+        }
+        return ctx.reply(`❌ ${sesCD.motivo}`);
+      }
+      reqs = await cdLeerRequerimientos(sesCD.page);
+      writeCache(chatId, "pendientes", reqs);
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      console.error("[PENDIENTES]", e.message);
+      return ctx.reply(`❌ Error: ${e.message}`);
+    }
+  }
+
+  if (!reqs.length)
+    return ctx.reply("✅ No hay requerimientos pendientes en CD.");
+
+  const lineas = reqs.map((r, i) => {
+    const entidad = r.entidad ? ` — <i>${escapeHtml(r.entidad)}</i>` : "";
+    return `${i + 1}. ${escapeHtml(r.nombre)}${entidad}`;
+  });
+
+  const tag = "";
+  return ctx.reply(
+    `📋 <b>${reqs.length} requerimiento${reqs.length !== 1 ? "s" : ""} pendiente${reqs.length !== 1 ? "s" : ""}:</b>${tag}\n\n${lineas.join("\n")}`,
+    { parse_mode: "HTML" }
+  );
 });
 
 bot.command("vencimientos", async (ctx) => {
@@ -234,49 +413,120 @@ bot.command("vencimientos", async (ctx) => {
   const diasP = cliente.diasPersonal ?? 10;
   const diasV = cliente.diasVehiculos ?? 10;
   const diasE = cliente.diasEmpresa ?? 10;
-  await ctx.reply(`🔎 Consultando vencimientos (empresa: ${diasE}d · personal: ${diasP}d · vehículos: ${diasV}d)…`);
 
-  try {
-    const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
-    if (!sesCD.ok) {
-      if (sesCD.screenshot)
-        return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
-      return ctx.reply(`❌ ${sesCD.motivo}`);
+  // Cache compartido con Bunn — TTL 48h. `/vencimientos force` salta el cache.
+  const force = (ctx.match || "").trim().toLowerCase() === "force";
+  let items, screenshotsForReply, fromCache = false;
+  if (!force) {
+    const cached = readCache(chatId, "vencimientos", TTL_VENCIMIENTOS);
+    if (cached) {
+      items = recomputarDiasFaltantes(cached.data?.items || []);
+      screenshotsForReply = (cached.data?.screenshots || [])
+        .filter(s => s?.path)
+        .map(s => ({ kind: "path", path: s.path, nombre: s.name }));
+      fromCache = true;
     }
+  }
 
-    const { items, screenshots, debugPorTipo } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
-    const debugLines = [];
-    for (const tipo of ["general", "empresa", "personal", "vehiculo"]) {
-      const lista = Array.isArray(debugPorTipo?.[tipo]) ? debugPorTipo[tipo] : [];
-      if (!lista.length) {
-        debugLines.push(`${tipo}: sin fecha detectada`);
-        continue;
+  if (!fromCache) {
+    await ctx.reply(`🔎 Consultando vencimientos (empresa: ${diasE}d · personal: ${diasP}d · vehículos: ${diasV}d)…`);
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) {
+        if (sesCD.screenshot)
+          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+        return ctx.reply(`❌ ${sesCD.motivo}`);
       }
-      debugLines.push(`${tipo}:`);
-      for (const item of lista) {
-        debugLines.push(`- ${item.columna} | ${item.nombre} | ${item.fecha} | ${item.diasFaltantes}d`);
-      }
+      const venc = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
+      items = venc.items || [];
+      const screenshotPaths = saveScreenshots(chatId, "vencimientos", venc.screenshots);
+      writeCache(chatId, "vencimientos", { items, screenshots: screenshotPaths });
+      // Para la respuesta de este turno usamos buffers que ya tenemos en memoria (más rápido que releer disco).
+      screenshotsForReply = (venc.screenshots || []).map(ss => ({ kind: "buffer", buffer: ss.buffer, nombre: ss.nombre }));
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      console.error("[VENCIMIENTOS]", e.message);
+      return ctx.reply(`❌ Error: ${e.message}`);
     }
-    const debugTxt = `\n\n<code>Debug por tipo:\n${escapeHtml(debugLines.join("\n"))}</code>`;
+  }
 
-    if (!items.length) {
-      await ctx.reply(
-        `✅ <b>Todo OK</b> — sin vencimientos próximos.\n\n<i>Empresa: ${diasE}d · Personal: ${diasP}d · Vehículos: ${diasV}d</i>${debugTxt}`,
-        { parse_mode: "HTML" }
-      );
-      for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
-      return;
-    }
+  const tag = "";
 
-    await ctx.reply(debugTxt, { parse_mode: "HTML" });
+  // /vencimientos solo muestra los PRÓXIMOS a vencer (diasFaltantes >= 0).
+  // Los vencidos (< 0) se ven con /vencidos.
+  const proximos = (items || []).filter(i => i.diasFaltantes >= 0);
 
-    for (const chunk of _chunksVenc(_buildMsgVencimientos(items, diasP, diasV, diasE)))
+  if (!proximos.length) {
+    const umbralMsg = (diasE === diasP && diasP === diasV)
+      ? `los próximos ${diasE} días`
+      : `los próximos días (empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d)`;
+    await ctx.reply(
+      `✅ No tenés vencimientos en ${umbralMsg}.${tag}`,
+      { parse_mode: "HTML" }
+    );
+  } else {
+    const chunks = [..._chunksVenc(_buildMsgVencimientos(proximos, diasP, diasV, diasE))];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i] + (i === 0 ? tag : "");
       await ctx.reply(chunk, { parse_mode: "HTML" });
-    for (const ss of screenshots) await ctx.replyWithPhoto(new InputFile(ss.buffer, ss.nombre));
-  } catch (e) {
-    cdInvalidarSesion(chatId);
-    console.error("[VENCIMIENTOS]", e.message);
-    return ctx.reply(`❌ Error: ${e.message}`);
+    }
+  }
+
+  for (const ss of screenshotsForReply || []) {
+    const input = ss.kind === "buffer" ? new InputFile(ss.buffer, ss.nombre) : new InputFile(ss.path, ss.nombre);
+    await ctx.replyWithPhoto(input);
+  }
+});
+
+bot.command("vencidos", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return ctx.reply("No tengo tu cuenta registrada.");
+  if (!cliente.cdUser || !cliente.cdPass)
+    return ctx.reply("❌ No tenés credenciales configuradas. Usá /config primero.");
+
+  // Reusa el mismo cache que /vencimientos (cdLeerVencimientos devuelve todo, vencidos + próximos).
+  const diasP = cliente.diasPersonal ?? 10;
+  const diasV = cliente.diasVehiculos ?? 10;
+  const diasE = cliente.diasEmpresa ?? 10;
+
+  const force = (ctx.match || "").trim().toLowerCase() === "force";
+  let items, fromCache = false;
+  if (!force) {
+    const cached = readCache(chatId, "vencimientos", TTL_VENCIMIENTOS);
+    if (cached) { items = recomputarDiasFaltantes(cached.data?.items || []); fromCache = true; }
+  }
+
+  if (!fromCache) {
+    await ctx.reply(`🔎 Consultando vencidos…`);
+    try {
+      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+      if (!sesCD.ok) {
+        if (sesCD.screenshot)
+          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
+        return ctx.reply(`❌ ${sesCD.motivo}`);
+      }
+      const venc = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
+      items = venc.items || [];
+      const screenshotPaths = saveScreenshots(chatId, "vencimientos", venc.screenshots);
+      writeCache(chatId, "vencimientos", { items, screenshots: screenshotPaths });
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      console.error("[VENCIDOS]", e.message);
+      return ctx.reply(`❌ Error: ${e.message}`);
+    }
+  }
+
+  const tag = "";
+  const vencidos = (items || []).filter(i => i.diasFaltantes < 0);
+
+  if (!vencidos.length) {
+    return ctx.reply(`✅ No tenés vencimientos atrasados.${tag}`, { parse_mode: "HTML" });
+  }
+  const chunks = [..._chunksVenc(_buildMsgVencidos(vencidos))];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i] + (i === 0 ? tag : "");
+    await ctx.reply(chunk, { parse_mode: "HTML" });
   }
 });
 
@@ -398,6 +648,7 @@ bot.command("partemes", async (ctx) => {
       return ctx.reply(`❌ ${sesCD.motivo}`);
     }
     const { personal, maquinas } = await cdGrabarParteMensual(sesCD.page);
+    invalidateCache(chatId);  // parte mensual genera requerimientos/cumple vencimientos: invalida ambos
     return ctx.reply(_msgParteMensual(personal, maquinas), { parse_mode: "HTML" });
   } catch (e) {
     cdInvalidarSesion(chatId);
@@ -589,119 +840,55 @@ bot.on("message", async (ctx) => {
       }
     }
 
-    // Modo trabajar: analizar y subir
-    await ctx.reply("⏳ Analizando documentos…");
+    // ── PDF sin fase específica → delegamos a Bunn ──
+    // Reemplaza al "Modo trabajar" viejo (matching vía claude.js + mapeos).
+    // Bunn arranca con visión nativa, conversa con el cliente si necesita
+    // aclaraciones, y maneja el navegador con Playwright MCP propio. El cliente
+    // no se entera del handoff — Bunn responde usando el mismo token de
+    // @ControlBunBot.
+    //
+    // Portero: cada Bunn atiende UNO a la vez. Chequeamos el Bunn que le toca a este
+    // chatId vía bunn-routing.json. Si hay otro chat activo en ese Bunn (last_activity
+    // < 15 min), rechazamos. Si está huérfano, findActiveDelegated lo autocierra.
     try {
-      const buffer = await bajarPdf(ctx);
-      const imagenes = await pdfAImagenes(buffer);
-
-      const mapeos = await leerTodosMapeosPorTipo(chatId);
-      if (!mapeos.length)
-        return ctx.reply("❌ No tenés mapeos configurados. Usá /aprender primero para enseñarme los tipos de documentos.");
-
-      await ctx.reply(`🔗 ${imagenes.length} páginas listas. Leyendo requerimientos de CD…`);
-      const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
-      if (!sesCD.ok) {
-        if (sesCD.screenshot) {
-          return ctx.replyWithPhoto(new InputFile(sesCD.screenshot, "login.jpg"), { caption: `❌ ${sesCD.motivo}` });
-        }
-        return ctx.reply(`❌ Error conectando a CD: ${sesCD.motivo}`);
-      }
-
-      const reqs = await cdLeerRequerimientos(sesCD.page);
-      if (!reqs.length)
-        return ctx.reply("No hay requerimientos pendientes en CD por el momento.");
-
-      await ctx.reply(`🤖 Clasificando ${imagenes.length} páginas contra ${reqs.length} requerimientos pendientes…`);
-      const resultado = await matchearPaginasConReqs(imagenes, mapeos, reqs, cliente.nombreEmpresa || "");
-
-      if (!resultado)
-        return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
-
-      // Tipo reconocido pero la entidad del documento no corresponde a ningún empleado de esta cuenta
-      if (!resultado.grupos.length && !resultado.sinRequerido?.length && resultado.sinAsignar?.length) {
-        const tiposNoMatch = resultado.paginasClasificadas
-          ?.map(p => p.tipo_detectado).filter(Boolean)
-          .filter((v, i, a) => a.indexOf(v) === i).join(", ");
-        const detalle = tiposNoMatch ? ` (tipo detectado: <i>${escapeHtml(tiposNoMatch)}</i>)` : "";
+      const activo = await findActiveDelegated(chatId);
+      if (activo && activo.chatId !== chatId) {
+        const minsAtendiendo = Math.round(activo.age_ms / 60000);
+        const nombreOtro = activo.cliente_nombre || "otro cliente";
+        console.log(`[PORTERO] Rechazo PDF de ${chatId} — Bunn atendiendo a ${activo.chatId} (${nombreOtro}) hace ${minsAtendiendo}min`);
         return ctx.reply(
-          `❌ El documento${detalle} no corresponde a ningún empleado registrado en esta cuenta de CD.\n\nSi el documento es correcto, usá /unico para subirlo al requerimiento manualmente.`,
-          { parse_mode: "HTML" }
+          `⏳ Estoy con otro cliente justo ahora. Mandame el PDF de nuevo en un par de minutos y lo agarro.`
         );
       }
 
-      if (!resultado.grupos.length && !resultado.sinRequerido?.length)
-        return ctx.reply("❌ No pude identificar los documentos. Verificá que el PDF coincide con los mapeos configurados.");
-
-      const totalSubidas = resultado.grupos.reduce((s, g) => s + g.reqs.length, 0);
-
-      // Debug: clasificación por página
-      if (resultado.paginasClasificadas?.length) {
-        const debugLineas = resultado.paginasClasificadas.map(
-          (p) => `  pág ${p.pagina}: <i>${escapeHtml(p.tipo_detectado || "?")}</i>${p.entidad_detectada ? ` — <b>${escapeHtml(p.entidad_detectada)}</b>` : " (sin entidad)"}`
-        ).join("\n");
-        await ctx.reply(`🔍 <b>Clasificación detectada:</b>\n${debugLineas}`, { parse_mode: "HTML" });
-      }
-
-      const _parseTotalMeses = (nombre) => {
-        const m = String(nombre || "").match(/-(\d{4})-(\d+)$/i);
-        return m ? parseInt(m[1]) * 12 + parseInt(m[2]) : null;
-      };
-      const _now = new Date();
-      const _totalMesesActual = _now.getFullYear() * 12 + (_now.getMonth() + 1);
-
-      const lineas = resultado.grupos.map((g, i) => {
-        const pags = g.paginas.slice().sort((a, b) => a - b).join(", ");
-        const reqsStr = g.reqs.map((r) => `  • <i>${escapeHtml(r.nombre)}</i>`).join("\n");
-        let linea = `${i + 1}. <b>${escapeHtml(g.entidad || "Sin entidad")}</b> → págs. ${pags}\n${reqsStr}`;
-        if (g.omitidos?.length) {
-          const omitStr = g.omitidos.map((r) => `  ⏩ <i>${escapeHtml(r.nombre)}</i>`).join("\n");
-          linea += `\n${omitStr} (período anterior, no se sube)`;
-        }
-        const maxTotalMeses = Math.max(...g.reqs.map((r) => _parseTotalMeses(r.nombre) ?? 0));
-        const mesesAtras = _totalMesesActual - maxTotalMeses;
-        if (maxTotalMeses > 0 && mesesAtras >= 2) {
-          linea += `\n  ⚠️ El req más reciente está ${mesesAtras} mes${mesesAtras !== 1 ? "es" : ""} atrás del mes actual`;
-        }
-        return linea;
+      const buffer = await bajarPdf(ctx);
+      const filename = ctx.message.document.file_name || "doc.pdf";
+      const file = await saveUpload(chatId, buffer, filename);
+      await enterDelegated(chatId, {
+        trigger: "pdf",
+        trigger_file: file,
+        original_filename: filename,
+        cliente_nombre: cliente.nombre || "",
+        cd_user: cliente.cdUser || "",
+        cd_pass: cliente.cdPass || "",
+        nombre_empresa: cliente.nombreEmpresa || "",
       });
-      if (resultado.sinAsignar.length)
-        lineas.push(`\n⚠️ Sin identificar: páginas ${resultado.sinAsignar.join(", ")}`);
-
-      const sinRequerido = resultado.sinRequerido || [];
-      if (sinRequerido.length) {
-        const srStr = sinRequerido.map((item) => {
-          const pags = item.paginas.slice().sort((a, b) => a - b).join(", ");
-          const entidad = item.entidad ? ` (<i>${escapeHtml(item.entidad)}</i>)` : "";
-          return `  ⚡ Págs. ${pags} → <i>${escapeHtml(item.tipo)}</i>${entidad} — sin requerido en CD`;
-        }).join("\n");
-        lineas.push(`\n${srStr}`);
-      }
-
-      setSesion(chatId, {
-        fase: "trabajar_confirmando",
-        buffer,
-        gruposSubir: resultado.grupos,
-        sinRequerido,
-        cdUser: cliente.cdUser,
-        cdPass: cliente.cdPass,
+      await appendInbox(chatId, {
+        kind: "pdf",
+        file,
+        original_filename: filename,
+        text: ctx.message.caption || "",
+        meta: {
+          entry: "trigger",
+          cliente_nombre: cliente.nombre || "",
+          cd_user: cliente.cdUser || "",
+          nombre_empresa: cliente.nombreEmpresa || "",
+        },
       });
-
-      const encabezado = resultado.grupos.length
-        ? `📋 <b>${resultado.grupos.length} grupo${resultado.grupos.length !== 1 ? "s" : ""}, ${totalSubidas} subida${totalSubidas !== 1 ? "s" : ""}:</b>`
-        : `📋 <b>Sin coincidencias directas con requeridos pendientes.</b>`;
-
-      const pregunta = resultado.grupos.length
-        ? `¿Confirmar y subir? (sí = todo · no = cancelar · número${resultado.grupos.length > 1 ? "s" : ""} = elegir, ej: <b>1</b> o <b>1 2</b>)`
-        : `¿Procedemos a generar los requeridos faltantes? (sí / no)`;
-
-      return ctx.reply(
-        `${encabezado}\n\n${lineas.join("\n\n")}\n\n${pregunta}`,
-        { parse_mode: "HTML" }
-      );
+      return ctx.reply("📥 Recibí el PDF. Activando inteligencia flexible, dame un momento…");
     } catch (e) {
-      console.error("[TRABAJAR]", e.message);
-      return ctx.reply(`❌ Error: ${e.message}`);
+      console.error("[DELEGADO TRIGGER]", e.message);
+      return ctx.reply(`❌ No pude guardar el PDF: ${e.message}`);
     }
   }
 
@@ -1118,6 +1305,8 @@ bot.on("message", async (ctx) => {
         }
       }
 
+      if (ok > 0) invalidateCache(chatId, "pendientes");
+
       const todosOmitidos = gruposSubir.flatMap((g) => g.omitidos || []);
       let msgFinal = `Listo. ${ok} subido${ok !== 1 ? "s" : ""}${fail ? `, ${fail} con error` : ""}.`;
       if (todosOmitidos.length) {
@@ -1414,6 +1603,7 @@ bot.on("message", async (ctx) => {
       }
       const nombre = `${reqElegido.nombre.replace(/[^a-z0-9]/gi, "_")}.pdf`;
       await cdSubirArchivo(sesCD.page, reqElegido.href, buffer, nombre, reqElegido.nombre, reqElegido.entidad);
+      invalidateCache(chatId, "pendientes");
       const entidad = reqElegido.entidad ? ` — ${escapeHtml(reqElegido.entidad)}` : "";
       resetSesion(chatId);
       return ctx.reply(`✅ ${escapeHtml(reqElegido.nombre)}${entidad}`);
@@ -1566,6 +1756,7 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
         await cdSubirArchivo(sesCD.page, reqNuevo.href, bufferItem, nombre, reqNuevo.nombre, reqNuevo.entidad);
         await ctx.reply(`✅ ${escapeHtml(reqNuevo.nombre)}${reqNuevo.entidad ? ` (<i>${escapeHtml(reqNuevo.entidad)}</i>)` : ""}`, { parse_mode: "HTML" });
       }
+      invalidateCache(chatId, "pendientes");
     }
   } catch (e) {
     if (e.sectores) {
@@ -1589,6 +1780,33 @@ async function _generarItem(ctx, chatId, item, tipo, sector = null) {
 
 // ─── Vencimientos: helpers de formato ────────────────────────────────────────
 
+// `diasFaltantes` se persiste en cache pero depende del día actual. Si pedís
+// /vencimientos al día siguiente sin que el cron de las 9 AM AR haya corrido,
+// el cacheado tendría 1 día de desfase. fecha (DD/MM/YYYY) es invariante, así
+// que recomputamos contra el día de hoy AR (anclado por Intl, no por TZ del VPS).
+function _hoyAR_UTCms() {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const [y, m, d] = fmt.format(new Date()).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+function recomputarDiasFaltantes(items) {
+  if (!Array.isArray(items)) return items;
+  const hoy = _hoyAR_UTCms();
+  return items.map(item => {
+    const mm = String(item?.fecha || "").trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+    if (!mm) return item;
+    let y = parseInt(mm[3], 10);
+    if (y < 100) y += 2000;
+    const f = Date.UTC(y, parseInt(mm[2], 10) - 1, parseInt(mm[1], 10));
+    const dias = Math.round((f - hoy) / 864e5);
+    return { ...item, diasFaltantes: dias };
+  });
+}
+
 function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
   const fraseDias = (d) => {
     if (d < 0) { const n = Math.abs(d); return n === 1 ? "VENCIDO hace 1 día" : `VENCIDO hace ${n} días`; }
@@ -1605,7 +1823,7 @@ function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
 
   const partes = [
     `🔔 <b>Vencimientos próximos</b>`,
-    `<i>🔴 vencido · 🟠 hoy/1-3 días · 🟡 4+ días | empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d</i>`,
+    `<i>🟠 hoy/1-3 días · 🟡 4+ días | empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d</i>`,
   ];
 
   const bloque = (titulo, lista, sinNombre = false) => {
@@ -1621,8 +1839,41 @@ function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
     if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
   };
 
-  bloque("📋 <b>GENERAL (proveedor)</b>", generales, true);
-  bloque("🏢 <b>EMPRESA</b>", empresa);
+  bloque("📋 <b>GENERAL</b>", generales, true);
+  bloque("🏢 <b>EMPRESA</b>", empresa, true);
+  bloque("👷 <b>PERSONAL</b>", personal);
+  bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
+  return partes.join("\n");
+}
+
+function _buildMsgVencidos(items) {
+  const fraseDias = (d) => {
+    const n = Math.abs(d);
+    return n === 1 ? "vencido hace 1 día" : `vencido hace ${n} días`;
+  };
+
+  const generales = items.filter(i => i.tipo === "general");
+  const empresa   = items.filter(i => i.tipo === "empresa");
+  const personal  = items.filter(i => i.tipo === "personal");
+  const vehiculos = items.filter(i => i.tipo === "vehiculo");
+
+  const partes = [`🔴 <b>Vencimientos atrasados</b>`];
+
+  const bloque = (titulo, lista, sinNombre = false) => {
+    if (!lista.length) return;
+    partes.push(`\n${titulo}`);
+    const ordenada = [...lista].sort((a, b) => a.diasFaltantes - b.diasFaltantes);
+    for (const it of ordenada.slice(0, 60)) {
+      partes.push(sinNombre
+        ? `🔴 ${escapeHtml(it.columna)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+        : `🔴 ${escapeHtml(it.columna)} — ${escapeHtml(it.nombre)} — ${it.fecha} (${fraseDias(it.diasFaltantes)})`
+      );
+    }
+    if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
+  };
+
+  bloque("📋 <b>GENERAL</b>", generales, true);
+  bloque("🏢 <b>EMPRESA</b>", empresa, true);
   bloque("👷 <b>PERSONAL</b>", personal);
   bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
   return partes.join("\n");
@@ -1681,8 +1932,8 @@ cron.schedule("0 8 1 * *", async () => {
   console.log("[CRON] Parte mensual automático finalizado");
 });
 
-// Todos los días a las 08:00 — notifica solo si hay vencimientos próximos
-cron.schedule("0 8 * * *", async () => {
+// Todos los días a las 09:00 hora Argentina — notifica solo si hay vencimientos próximos
+cron.schedule("0 9 * * *", async () => {
   const inicio = Date.now();
   console.log(`[CRON VENC] ▶ Iniciado — ${new Date().toLocaleString("es-AR")}`);
   const clientes = await listarTodosClientes();
@@ -1710,17 +1961,28 @@ cron.schedule("0 8 * * *", async () => {
         continue;
       }
       console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — sesión OK, consultando vencimientos…`);
-      const { items } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
-      console.log(`[CRON VENC] 📋 ${cliente.nombre || chatId} — ${items.length} item(s) encontrado(s)`);
-      if (!items.length) {
+      const { items, screenshots } = await cdLeerVencimientos(sesCD.page, diasP, diasV, diasE);
+      console.log(`[CRON VENC] 📋 ${cliente.nombre || chatId} — ${items.length} item(s) total(es)`);
+
+      // Refrescar cache compartido aunque no haya alerta (beneficia al /vencimientos manual del día).
+      const screenshotPaths = saveScreenshots(chatId, "vencimientos", screenshots);
+      writeCache(chatId, "vencimientos", { items, screenshots: screenshotPaths });
+
+      // Solo alerta por vencimientos PRÓXIMOS (diasFaltantes >= 0). Los vencidos no son novedad.
+      const proximos = items.filter(i => i.diasFaltantes >= 0);
+      console.log(`[CRON VENC] ⏰ ${cliente.nombre || chatId} — ${proximos.length} próximo(s) a vencer`);
+      if (!proximos.length) {
         console.log(`[CRON VENC] ✔ ${cliente.nombre || chatId} — sin vencimientos próximos, no se envía alerta`);
         continue;
       }
       conAlertas++;
-      const chunks = [..._chunksVenc(_buildMsgVencimientos(items, diasP, diasV, diasE))];
+      const chunks = [..._chunksVenc(_buildMsgVencimientos(proximos, diasP, diasV, diasE))];
       console.log(`[CRON VENC] 📨 ${cliente.nombre || chatId} — enviando ${chunks.length} mensaje(s) con alertas`);
       for (const chunk of chunks)
         await bot.api.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+      for (const ss of screenshots || []) {
+        await bot.api.sendPhoto(chatId, new InputFile(ss.buffer, ss.nombre));
+      }
       console.log(`[CRON VENC] ✅ ${cliente.nombre || chatId} — alerta enviada`);
     } catch (e) {
       cdInvalidarSesion(chatId);
@@ -1731,7 +1993,7 @@ cron.schedule("0 8 * * *", async () => {
 
   const duracion = ((Date.now() - inicio) / 1000).toFixed(1);
   console.log(`[CRON VENC] ■ Finalizado en ${duracion}s — procesados=${procesados} alertas=${conAlertas} errores=${errores} sinCreds=${sinCredenciales}`);
-});
+}, { timezone: "America/Argentina/Buenos_Aires" });
 
 // ─── Setup y arranque ────────────────────────────────────────────────────────
 
@@ -1739,14 +2001,16 @@ bot.catch((err) => console.error("[BOT ERROR]", err.message));
 
 async function setupCommands() {
   const base = [
+    { command: "bunn", description: "Activar modo libre (charlar y pedir cosas en lenguaje natural)" },
     { command: "estado", description: "Ver tu cuenta conectada y mapeos" },
     { command: "miid", description: "Ver tu chat ID" },
     { command: "config", description: "Configurar credenciales de controldocumentario.com" },
     { command: "pendientes", description: "Ver requerimientos pendientes en CD" },
     { command: "vencimientos", description: "Ver vencimientos próximos de documentos" },
+    { command: "vencidos", description: "Ver vencimientos atrasados (ya vencidos)" },
     { command: "partemes", description: "Grabar parte mensual (personal y máquinas)" },
     { command: "aprender", description: "Configurar mapeo de documentos" },
-    { command: "listo", description: "Finalizar mapeo actual" },
+    { command: "listo", description: "Finalizar modo libre o mapeo actual" },
     { command: "unico", description: "Subir un PDF directo a un requerimiento (sin IA)" },
     { command: "mapeos", description: "Ver, reemplazar o eliminar mapeos guardados" },
     { command: "web", description: "Abrir el panel de mapeos en la web" },

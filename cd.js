@@ -1506,11 +1506,20 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         const col = (headers[i] || "").trim();
         if (/^estado/i.test(col)) continue;
         const dias = Math.round((f - hoy) / 864e5);
+        // Extraer LRSopen(idRequerimiento, codigoDocumento) si la celda lo tiene
+        const onclickAttr = tds[i].getAttribute("onclick") || "";
+        const lrs = onclickAttr.match(/LRSopen\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
+        const idRequerimiento = lrs ? lrs[1] : null;
+        const codigoDocumento = lrs ? lrs[2] : null;
         masCercanos = acumularMasCercanos(masCercanos, {
-          tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias
+          tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias,
+          idRequerimiento, codigoDocumento,
         });
         if (dias > umbral) continue;
-        items.push({ tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias });
+        items.push({
+          tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias,
+          idRequerimiento, codigoDocumento,
+        });
       }
     }
 
@@ -1603,12 +1612,17 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         resultado.totalEmpresa++;
         const col = (headers[i] || "").trim();
         const dias = Math.round((f - hoy) / 864e5);
+        const onclickAttr = tds[i].getAttribute("onclick") || "";
+        const lrs = onclickAttr.match(/LRSopen\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
+        const idRequerimiento = lrs ? lrs[1] : null;
+        const codigoDocumento = lrs ? lrs[2] : null;
         resultado.masCercanosEmpresa = acumularMasCercanos(resultado.masCercanosEmpresa, {
           tipo: "empresa",
           nombre: "Proveedor",
           columna: col,
           fecha: (tds[i].textContent || "").trim(),
           diasFaltantes: dias,
+          idRequerimiento, codigoDocumento,
         });
         if (dias > uEmpresa) continue;
         resultado.empresaItems.push({
@@ -1617,6 +1631,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
           columna: col,
           fecha: (tds[i].textContent || "").trim(),
           diasFaltantes: dias,
+          idRequerimiento, codigoDocumento,
         });
       }
     }
@@ -1641,14 +1656,141 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     return ultimo;
   };
 
+  // Verifica cada item contra el endpoint SOAP getDocumentoUltimoEstado.
+  // CD a veces no refresca la celda del calendario cuando entra un requerimiento más nuevo,
+  // generando falsos positivos. Acá llamamos al endpoint que usa el popup ("último estado")
+  // y, si el último enviado es distinto al de la celda, recalculamos o descartamos.
+  // Devuelve { items: items filtrados/corregidos, info: stats para logging }.
+  const verificarItemsConUltimoEstado = async (label, items, umbral) => {
+    const candidatos = items.filter(it => it.idRequerimiento && it.codigoDocumento);
+    if (!candidatos.length) {
+      console.log(`[VENC] ${label}: 0 items con LRSopen, skip verificación SOAP`);
+      return { items, info: { verificados: 0, corregidos: 0, descartados: 0 } };
+    }
+
+    const hCodigo = await page.evaluate(() => {
+      const el = document.getElementById("ctl00_ContentPlaceHolderMain_hfHCodigo");
+      return el ? el.value : null;
+    }).catch(() => null);
+    if (!hCodigo) {
+      console.log(`[VENC] ${label}: no se pudo leer hCodigo, skip verificación SOAP`);
+      return { items, info: { verificados: 0, corregidos: 0, descartados: 0 } };
+    }
+
+    const llamar = async (req, doc) => {
+      return await page.evaluate(async ({ hCodigo, req, doc }) => {
+        const body = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <getDocumentoUltimoEstado xmlns="http://tempuri.org/">
+      <hCodigo>${hCodigo}</hCodigo>
+      <idRequerimiento>${req}</idRequerimiento>
+      <codigoDocumento>${doc}</codigoDocumento>
+    </getDocumentoUltimoEstado>
+  </soap:Body>
+</soap:Envelope>`;
+        try {
+          const r = await fetch("/Services/ClienteWS.asmx", {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/xml; charset=utf-8",
+              "SOAPAction": "http://tempuri.org/getDocumentoUltimoEstado",
+            },
+            body,
+          });
+          return { status: r.status, text: await r.text() };
+        } catch (e) {
+          return { status: 0, text: "", error: String(e) };
+        }
+      }, { hCodigo, req, doc });
+    };
+
+    const tag = (xml, field) => {
+      const m = xml.match(new RegExp(`<${field}[^>]*>([^<]*)</${field}>`));
+      return m ? m[1] : null;
+    };
+    const parseIso = (s) => {
+      if (!s) return null;
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const fmtDmy = (d) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+    // Concurrencia 4 — equilibrio entre velocidad y no martillar CD
+    const concurrency = 4;
+    const resultados = new Map(); // key = `${req}:${doc}` → { mantener, item, motivo }
+    let i = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (i < candidatos.length) {
+        const idx = i++;
+        const it = candidatos[idx];
+        const key = `${it.idRequerimiento}:${it.codigoDocumento}`;
+        if (resultados.has(key)) continue;
+        const res = await llamar(it.idRequerimiento, it.codigoDocumento);
+        if (res.status !== 200) {
+          resultados.set(key, { mantener: true, item: it, motivo: `SOAP HTTP ${res.status}` });
+          continue;
+        }
+        const idSource = tag(res.text, "IdRequerimientoSource");
+        const idLast = tag(res.text, "IdRequerimientoLast");
+        const vHastaLast = parseIso(tag(res.text, "VigenciaHastaLast"));
+        if (idSource && idLast && idSource === idLast) {
+          resultados.set(key, { mantener: true, item: it, motivo: "source==last" });
+          continue;
+        }
+        // Hay un requerimiento más reciente
+        if (!vHastaLast) {
+          resultados.set(key, { mantener: false, item: it, motivo: `last sin vigencia (last=${idLast})` });
+          continue;
+        }
+        const nuevosDias = Math.round((vHastaLast - hoy) / 864e5);
+        if (nuevosDias > umbral) {
+          resultados.set(key, { mantener: false, item: it, motivo: `last hasta ${fmtDmy(vHastaLast)} (${nuevosDias}d, fuera de umbral)` });
+          continue;
+        }
+        resultados.set(key, {
+          mantener: true,
+          item: { ...it, fecha: fmtDmy(vHastaLast), diasFaltantes: nuevosDias, _corregidoDesde: it.fecha },
+          motivo: `corregido a ${fmtDmy(vHastaLast)} (last=${idLast})`,
+        });
+      }
+    });
+    await Promise.all(workers);
+
+    let corregidos = 0;
+    let descartados = 0;
+    const finales = [];
+    for (const it of items) {
+      if (!it.idRequerimiento || !it.codigoDocumento) { finales.push(it); continue; }
+      const key = `${it.idRequerimiento}:${it.codigoDocumento}`;
+      const r = resultados.get(key);
+      if (!r) { finales.push(it); continue; }
+      if (!r.mantener) {
+        descartados++;
+        console.log(`[VENC] ${label}: descartado ${it.nombre} / ${it.columna} (${it.fecha}) — ${r.motivo}`);
+        continue;
+      }
+      if (r.item._corregidoDesde) {
+        corregidos++;
+        console.log(`[VENC] ${label}: corregido ${it.nombre} / ${it.columna} ${r.item._corregidoDesde} → ${r.item.fecha} — ${r.motivo}`);
+      }
+      finales.push(r.item);
+    }
+    return { items: finales, info: { verificados: candidatos.length, corregidos, descartados } };
+  };
+
   const selPers = await seleccionarTipo("personal");
   if (selPers.ok && !selPers.yaEstaba) await page.waitForTimeout(5000);
   await clickBuscar();
-  const { items: itemsPers, totalConFecha: totalPers, masCercanos: masCercanosPers } =
+  const { items: itemsPersRaw, totalConFecha: totalPers, masCercanos: masCercanosPers } =
     await reintentarLectura("Personal", () => leerTabla("personal", diasPersonal));
+  const { items: itemsPers, info: infoVerifPers } =
+    await verificarItemsConUltimoEstado("Personal", itemsPersRaw, diasPersonal);
+  console.log(`[VENC] Personal: verificación SOAP — ${infoVerifPers.verificados} consultas, ${infoVerifPers.corregidos} corregidos, ${infoVerifPers.descartados} descartados`);
   todosItems.push(...itemsPers);
   if (masCercanosPers?.length) debugPorTipo.personal = masCercanosPers;
-  console.log(`[VENC] Personal: ${itemsPers.length} items (${totalPers} fechas detectadas)`);
+  console.log(`[VENC] Personal: ${itemsPers.length} items (${totalPers} fechas detectadas, post-verificación)`);
   if (totalPers === 0) {
     const dbg = await debugTablasVisibles("personal");
     for (const t of dbg.tablas) {
@@ -1658,12 +1800,15 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
 
   const {
     generalItems: itemsGen,
-    empresaItems: itemsEmp,
+    empresaItems: itemsEmpRaw,
     totalGeneral: totalGen,
     totalEmpresa: totalEmp,
     masCercanosGeneral: masCercanosGen,
     masCercanosEmpresa: masCercanosEmp,
   } = await leerResumenProveedor(umbralMax, diasEmpresa);
+  const { items: itemsEmp, info: infoVerifEmp } =
+    await verificarItemsConUltimoEstado("Empresa", itemsEmpRaw, diasEmpresa);
+  console.log(`[VENC] Empresa: verificación SOAP — ${infoVerifEmp.verificados} consultas, ${infoVerifEmp.corregidos} corregidos, ${infoVerifEmp.descartados} descartados`);
   todosItems.push(...itemsGen);
   todosItems.push(...itemsEmp);
   if (masCercanosGen?.length) debugPorTipo.general = masCercanosGen;
@@ -1690,11 +1835,14 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   if (selMaq.ok) {
     if (!selMaq.yaEstaba) await page.waitForTimeout(5000);
     await clickBuscar();
-    const { items: itemsMaq, totalConFecha: totalMaq, masCercanos: masCercanosMaq } =
+    const { items: itemsMaqRaw, totalConFecha: totalMaq, masCercanos: masCercanosMaq } =
       await reintentarLectura("Vehiculos", () => leerTabla("vehiculo", diasVehiculos));
+    const { items: itemsMaq, info: infoVerifMaq } =
+      await verificarItemsConUltimoEstado("Vehiculos", itemsMaqRaw, diasVehiculos);
+    console.log(`[VENC] Vehiculos: verificación SOAP — ${infoVerifMaq.verificados} consultas, ${infoVerifMaq.corregidos} corregidos, ${infoVerifMaq.descartados} descartados`);
     todosItems.push(...itemsMaq);
     if (masCercanosMaq?.length) debugPorTipo.vehiculo = masCercanosMaq;
-    console.log(`[VENC] Vehiculos: ${itemsMaq.length} items (${totalMaq} fechas detectadas)`);
+    console.log(`[VENC] Vehiculos: ${itemsMaq.length} items (${totalMaq} fechas detectadas, post-verificación)`);
     const ssMaq = await capturar();
     if (ssMaq) screenshots.push({ buffer: ssMaq, nombre: "vehiculos.jpg" });
   } else {
