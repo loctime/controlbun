@@ -840,56 +840,57 @@ bot.on("message", async (ctx) => {
       }
     }
 
-    // ── PDF sin fase específica → delegamos a Bunn ──
-    // Reemplaza al "Modo trabajar" viejo (matching vía claude.js + mapeos).
-    // Bunn arranca con visión nativa, conversa con el cliente si necesita
-    // aclaraciones, y maneja el navegador con Playwright MCP propio. El cliente
-    // no se entera del handoff — Bunn responde usando el mismo token de
-    // @ControlBunBot.
-    //
-    // Portero: cada Bunn atiende UNO a la vez. Chequeamos el Bunn que le toca a este
-    // chatId vía bunn-routing.json. Si hay otro chat activo en ese Bunn (last_activity
-    // < 15 min), rechazamos. Si está huérfano, findActiveDelegated lo autocierra.
-    try {
-      const activo = await findActiveDelegated(chatId);
-      if (activo && activo.chatId !== chatId) {
-        const minsAtendiendo = Math.round(activo.age_ms / 60000);
-        const nombreOtro = activo.cliente_nombre || "otro cliente";
-        console.log(`[PORTERO] Rechazo PDF de ${chatId} — Bunn atendiendo a ${activo.chatId} (${nombreOtro}) hace ${minsAtendiendo}min`);
-        return ctx.reply(
-          `⏳ Estoy con otro cliente justo ahora. Mandame el PDF de nuevo en un par de minutos y lo agarro.`
-        );
-      }
+    // ── PDF sin fase específica → DESACTIVADO temporalmente (2026-05-31) ──
+    // Antes el PDF se delegaba a Bunn (modo "inteligencia flexible"). Quedó
+    // desactivado por decisión de loctime junto con el comando /bunn (ver
+    // arriba bot.command("bunn", ...)). El código original quedó comentado
+    // abajo para rehabilitar rápido.
+    return ctx.reply(
+      "📄 Recibí el PDF, pero el modo inteligente está desactivado temporalmente.\n\n" +
+      "Por ahora podés subir un documento puntual con /unico (elegís el requerimiento y mandás el PDF)."
+    );
 
-      const buffer = await bajarPdf(ctx);
-      const filename = ctx.message.document.file_name || "doc.pdf";
-      const file = await saveUpload(chatId, buffer, filename);
-      await enterDelegated(chatId, {
-        trigger: "pdf",
-        trigger_file: file,
-        original_filename: filename,
-        cliente_nombre: cliente.nombre || "",
-        cd_user: cliente.cdUser || "",
-        cd_pass: cliente.cdPass || "",
-        nombre_empresa: cliente.nombreEmpresa || "",
-      });
-      await appendInbox(chatId, {
-        kind: "pdf",
-        file,
-        original_filename: filename,
-        text: ctx.message.caption || "",
-        meta: {
-          entry: "trigger",
-          cliente_nombre: cliente.nombre || "",
-          cd_user: cliente.cdUser || "",
-          nombre_empresa: cliente.nombreEmpresa || "",
-        },
-      });
-      return ctx.reply("📥 Recibí el PDF. Activando inteligencia flexible, dame un momento…");
-    } catch (e) {
-      console.error("[DELEGADO TRIGGER]", e.message);
-      return ctx.reply(`❌ No pude guardar el PDF: ${e.message}`);
-    }
+    // --- Implementación original (re-habilitar reemplazando el return de arriba) ---
+    // try {
+    //   const activo = await findActiveDelegated(chatId);
+    //   if (activo && activo.chatId !== chatId) {
+    //     const minsAtendiendo = Math.round(activo.age_ms / 60000);
+    //     const nombreOtro = activo.cliente_nombre || "otro cliente";
+    //     console.log(`[PORTERO] Rechazo PDF de ${chatId} — Bunn atendiendo a ${activo.chatId} (${nombreOtro}) hace ${minsAtendiendo}min`);
+    //     return ctx.reply(
+    //       `⏳ Estoy con otro cliente justo ahora. Mandame el PDF de nuevo en un par de minutos y lo agarro.`
+    //     );
+    //   }
+    //
+    //   const buffer = await bajarPdf(ctx);
+    //   const filename = ctx.message.document.file_name || "doc.pdf";
+    //   const file = await saveUpload(chatId, buffer, filename);
+    //   await enterDelegated(chatId, {
+    //     trigger: "pdf",
+    //     trigger_file: file,
+    //     original_filename: filename,
+    //     cliente_nombre: cliente.nombre || "",
+    //     cd_user: cliente.cdUser || "",
+    //     cd_pass: cliente.cdPass || "",
+    //     nombre_empresa: cliente.nombreEmpresa || "",
+    //   });
+    //   await appendInbox(chatId, {
+    //     kind: "pdf",
+    //     file,
+    //     original_filename: filename,
+    //     text: ctx.message.caption || "",
+    //     meta: {
+    //       entry: "trigger",
+    //       cliente_nombre: cliente.nombre || "",
+    //       cd_user: cliente.cdUser || "",
+    //       nombre_empresa: cliente.nombreEmpresa || "",
+    //     },
+    //   });
+    //   return ctx.reply("📥 Recibí el PDF. Activando inteligencia flexible, dame un momento…");
+    // } catch (e) {
+    //   console.error("[DELEGADO TRIGGER]", e.message);
+    //   return ctx.reply(`❌ No pude guardar el PDF: ${e.message}`);
+    // }
   }
 
   // ── Config: esperando usuario de CD ──
