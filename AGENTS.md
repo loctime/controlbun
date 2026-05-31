@@ -1,5 +1,11 @@
 # ControlBun — Estado del proyecto (para Codex)
 
+> **Estado al 2026-05-31:**
+> - Comando `/bunn` y trigger automático de PDF: PAUSADOS (devuelven mensaje informativo que deriva a `/unico`). El handler delegado original quedó comentado en `bot.js` para reactivación rápida.
+> - Las 4 fases `trabajar_*` y los 3 helpers `_mostrarGenerables`/`_procesarSiguienteGenerable`/`_generarItem` fueron eliminados. Era el matching con IA pre-Bunn (`Codex.js`/`matchearPaginasConReqs`). No vuelven — reemplazados definitivamente por Bunn.
+> - `/aprender` y `/mapeos` siguen activos pero su output queda huérfano hasta que se reactive Bunn.
+> - Túnel cloudflared cambiado de QUIC a HTTP/2 para reducir ruido en logs.
+
 ## Qué es esto
 
 Bot de Telegram que reemplaza la extensión de Chrome ControlInject/ControlBun.
@@ -140,15 +146,8 @@ El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin 
 - `/modelo gemini` → cambia a Gemini 2.5 Flash
 - Cambio inmediato sin reiniciar. Persiste en `runtime.json`.
 
-### Trabajar — Subir PDF con IA
-1. Usuario manda PDF (sin comando previo)
-2. Bot renderiza páginas → lee mapeos → lee reqs pendientes de CD
-3. AI asigna cada página a un req pendiente específico (`matchearPaginasConReqs`)
-4. Bot muestra resumen con confirmación:
-   - Cada grupo lista los reqs a subir y los omitidos con ⏩ (períodos anteriores)
-   - Si el req más reciente está 2+ meses atrás del mes actual → aviso ⚠️
-5. Usuario dice "sí" → corta PDF por grupo → sube cada sección a CD
-6. Mensaje final lista los reqs omitidos (período anterior) bajo "⚠️ Quedaron pendientes"
+### ~~Trabajar — Subir PDF con IA~~ [ELIMINADO 2026-05-31]
+Flujo eliminado. Era la subida automática vía matching con IA (Codex/Gemini). Reemplazado definitivamente por Bunn. El código de las 4 fases `trabajar_*` y los helpers asociados se borró de bot.js.
 
 ## Decisiones de arquitectura importantes
 

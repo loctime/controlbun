@@ -1,5 +1,12 @@
 # ControlBun — Estado del proyecto (para Claude)
 
+> **Estado al 2026-05-31:**
+> - Comando `/bunn` y trigger automático de PDF: PAUSADOS (devuelven mensaje informativo que deriva a `/unico`). El handler delegado original quedó comentado en `bot.js` para reactivación rápida. Se prevé reactivar próximamente.
+> - Las 4 fases `trabajar_*` y los 3 helpers `_mostrarGenerables`, `_procesarSiguienteGenerable`, `_generarItem` fueron eliminados (~292 líneas). Eran el matching con IA pre-Bunn (`claude.js` / `matchearPaginasConReqs`). No vuelven — reemplazados definitivamente por Bunn.
+> - `/aprender` y `/mapeos` siguen activos como comandos pero su output (mapeos guardados) queda huérfano hasta que se reactive Bunn.
+> - Túnel cloudflared cambiado de QUIC a HTTP/2 (2026-05-31) para reducir ruido en logs.
+> - Comando `/generar` agregado al menú visible al cliente.
+
 ## Qué es esto
 
 Bot de Telegram que reemplaza la extensión de Chrome ControlInject/ControlBun.
@@ -140,15 +147,8 @@ El panel vive en `https://mapeos.controldoc.app` y siempre está disponible sin 
 - `/modelo gemini` → cambia a Gemini 2.5 Flash
 - Cambio inmediato sin reiniciar. Persiste en `runtime.json`.
 
-### Trabajar — Subir PDF con IA
-1. Usuario manda PDF (sin comando previo)
-2. Bot renderiza páginas → lee mapeos → lee reqs pendientes de CD
-3. AI asigna cada página a un req pendiente específico (`matchearPaginasConReqs`)
-4. Bot muestra resumen con confirmación:
-   - Cada grupo lista los reqs a subir y los omitidos con ⏩ (períodos anteriores)
-   - Si el req más reciente está 2+ meses atrás del mes actual → aviso ⚠️
-5. Usuario dice "sí" → corta PDF por grupo → sube cada sección a CD
-6. Mensaje final lista los reqs omitidos (período anterior) bajo "⚠️ Quedaron pendientes"
+### ~~Trabajar — Subir PDF con IA~~ [ELIMINADO 2026-05-31]
+Flujo eliminado. Era la subida automática vía matching con IA (Codex/Gemini). Reemplazado definitivamente por Bunn (modo delegado con visión nativa). El código de las 4 fases `trabajar_*` y los helpers `_procesarSiguienteGenerable`/`_generarItem`/`_mostrarGenerables` se borró de bot.js. El comando `claude.js`/`matchearPaginasConReqs` ya no se importa.
 
 ## Decisiones de arquitectura importantes
 
@@ -287,12 +287,10 @@ Sesiones guardadas en un `Map` en memoria. Si el bot se reinicia, el usuario pie
 | `config_esperando_user` | Esperando email de CD |
 | `config_esperando_pass` | Esperando contraseña de CD |
 | `config_esperando_empresa` | Esperando nombre de empresa (si auto-detección falló) |
-| `trabajar_confirmando` | Confirmando subida con IA |
-| `trabajar_generables` | Post-subida: mostrando lista de docs sin requerido en CD, esperando selección |
-| `trabajar_generando` | Procesando items a generar en secuencia |
-| `trabajar_generando_tipo` | Esperando que el usuario elija el tipo (empresa/personal/máquinas) para un requerido |
-| `trabajar_generando_sector` | Esperando que el usuario elija el sector (dropdown de CD, sobres empresa con múltiples sectores) |
-| `generar_sector` | Igual que `trabajar_generando_sector` pero desde el flujo manual `/generar` |
+| `generar_buscando` | `/generar`: usuario filtra/elige el tipo de requerimiento a crear |
+| `generar_confirmando` | `/generar`: confirmando creación |
+| `generar_tipo_manual` | `/generar`: usuario elige categoría (empresa/personal/máquinas) cuando auto-detección falla |
+| `generar_sector` | `/generar`: usuario elige sector cuando CD lo pide (dropdown) |
 
 ## AI Provider
 

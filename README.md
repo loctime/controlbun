@@ -1,5 +1,7 @@
 # ControlBun — Documentación del sistema
 
+> **Estado al 2026-05-31:** la subida con IA (modo "inteligencia flexible" + Bunn) está pausada temporalmente. El flujo activo para subir documentos es `/unico` (un PDF → un requerimiento específico). Se prevé reactivar Bunn próximamente.
+
 ## ¿Qué es ControlBun?
 
 ControlBun es un bot de Telegram que automatiza la gestión de documentación en [controldocumentario.com](https://controldocumentario.com) (CD).
@@ -8,9 +10,10 @@ CD es la plataforma que usan las empresas constructoras para gestionar la docume
 
 **ControlBun resuelve todo eso desde Telegram:**
 
-- Mandás un PDF → el bot lo analiza con IA, lo divide automáticamente y sube cada sección al requerimiento correcto en CD.
-- Revisás vencimientos en segundos, recibís alertas automáticas todos los días.
-- El parte mensual se graba solo el día 1 de cada mes, sin que tengas que hacer nada.
+- Subís un documento puntual con `/unico` → elegís el requerimiento y mandás el PDF.
+- Revisás vencimientos en segundos (`/vencimientos`, `/vencidos`), recibís alertas automáticas todos los días.
+- El parte mensual se graba solo con `/partemes`.
+- Generás un requerimiento nuevo en CD con `/generar`.
 - Todo desde el celular, en segundos.
 
 ---
@@ -62,25 +65,11 @@ Podés seguir mapeando más tipos de documentos en la misma sesión. Cuando term
 
 ---
 
-### Mandar un PDF — Subida automática con IA
+### Mandar un PDF — [PAUSADO al 2026-05-31]
 
-El flujo principal: mandás un PDF directamente al chat (sin ningún comando previo).
+Antes: si mandabas un PDF al chat sin comando previo, el bot lo analizaba con IA y lo dividía/subía automáticamente a los requerimientos correspondientes. Esa funcionalidad (modo "inteligencia flexible" / Bunn) está pausada temporalmente y el bot te deriva a `/unico`.
 
-**¿Qué hace el bot?**
-
-1. **Renderiza** el PDF — convierte cada página en imagen.
-2. **Lee tus mapeos** — carga todos los tipos de documentos que aprendiste.
-3. **Lee los requerimientos pendientes** de tu cuenta en CD.
-4. **Clasifica con IA** — un modelo de lenguaje visual analiza cada página y la asigna al requerimiento pendiente que corresponde, usando tus mapeos como referencia visual.
-5. **Muestra el resumen** con qué páginas van a qué requerimiento, y pide confirmación.
-6. **Sube** — corta el PDF por grupos y sube cada sección al requerimiento correcto en CD.
-
-**Casos que maneja automáticamente:**
-- **Múltiples entidades en un mismo PDF** (ej: recibos de sueldo de varios empleados): el bot agrupa por entidad y sube por separado.
-- **Períodos anteriores**: si hay requerimientos del mismo tipo de meses anteriores, los omite y solo sube el más reciente.
-- **Requeridos faltantes**: si el bot identifica un documento pero no hay requerido pendiente en CD para ese tipo, ofrece generarlo automáticamente.
-
-**Aviso de reqs desactualizados:** Si el requerimiento más reciente de un tipo está 2 o más meses atrás del mes actual, el bot te avisa ⚠️ para que lo tengas en cuenta.
+Para subir un PDF puntual mientras tanto: usá `/unico` (ver más abajo).
 
 ---
 
