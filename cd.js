@@ -1515,7 +1515,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
           tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias,
           idRequerimiento, codigoDocumento,
         });
-        if (dias > umbral) continue;
+        if (dias < 0 || dias > umbral) continue;
         items.push({
           tipo, nombre, columna: col, fecha: (tds[i].textContent || "").trim(), diasFaltantes: dias,
           idRequerimiento, codigoDocumento,
@@ -1570,7 +1570,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
           fecha: fechaTxt,
           diasFaltantes: dias,
         }];
-        if (dias <= uGeneral) {
+        if (dias >= 0 && dias <= uGeneral) {
           resultado.generalItems.push({
             tipo: "general",
             nombre: "Proveedor",
@@ -1624,7 +1624,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
           diasFaltantes: dias,
           idRequerimiento, codigoDocumento,
         });
-        if (dias > uEmpresa) continue;
+        if (dias < 0 || dias > uEmpresa) continue;
         resultado.empresaItems.push({
           tipo: "empresa",
           nombre: "Proveedor",
