@@ -605,3 +605,29 @@ sinAsignar: páginas que no corresponden a ningún tipo del mapeo o que quedaron
   }
   return null;
 }
+
+// Resumen breve para leer en voz alta (usa el proveedor de IA activo). Texto plano.
+export async function resumirParaVoz(texto) {
+  const limpio = (texto || "").replace(/<[^>]+>/g, "").trim();
+  if (!limpio) return "";
+  const body = {
+    model: MODELO,
+    max_tokens: 220,
+    messages: [
+      {
+        role: "user",
+        content:
+          "Resumí en español rioplatense el siguiente mensaje en 2 o 3 frases cortas y naturales, pensadas para escucharse en un audio. Nada de markdown, emojis, listas ni símbolos: solo texto hablado fluido. Si el mensaje ya es corto, parafrasealo en una sola frase. Mensaje:\n\n" +
+          limpio,
+      },
+    ],
+  };
+  try {
+    const r = await llamarClaude(body);
+    return (r?.content?.[0]?.text || "").replace(/[*_#`>]/g, "").trim();
+  } catch (e) {
+    console.error("[voz] resumen error:", e.message);
+    return "";
+  }
+}
+

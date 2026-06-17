@@ -413,6 +413,17 @@ cd /opt/controlbun && git pull && pm2 restart controlbun
 - `clientes/` — JSONs con credenciales de cada cliente
 - `mapeos/` — mapeos aprendidos por usuario
 
+## Voz (TTS con VoxCPM2)
+
+Módulo `voz.js`. Genera notas de voz con la **voz oficial #1** ("Locutor"), clonada desde el sample `voz-ref.mp3` vía el Space `openbmb/VoxCPM-Demo` (`@gradio/client`) → MP3 → `ffmpeg` a OGG/Opus → `replyWithVoice`.
+
+- **Comando `/voz`**: toggle ON/OFF por chat (estado en `voz-state.json`).
+- **Resumen automático**: un transformer en `bot.api.config.use` intercepta los `sendMessage` ≥150 chars (saltea errores `❌` y adjuntos foto/PDF). Si el chat tiene la voz activa, genera un resumen con `resumirParaVoz()` (en `claude.js`, usa el proveedor IA activo) y lo manda como nota de voz.
+- La voz se **clona** desde `voz-ref.mp3`. OJO: Voice Design (describir la voz por texto) NO es determinístico — daría una voz distinta en cada corrida; por eso se clona del sample aprobado.
+- Dependencias en el VPS: `@gradio/client` (npm) y `ffmpeg` (apt).
+
+---
+
 ## Para continuar / debug
 
 Script de prueba de subida sin Telegram ni IA:

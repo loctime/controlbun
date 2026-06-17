@@ -43,6 +43,10 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Codex/Ge
 | `/nuevocliente` | admin | Registrar nuevo cliente: `/nuevocliente NombreApellido CODIGO` |
 | `/miid` | todos | Ver el chat ID propio |
 
+### /voz — Resumen en audio (toggle)
+
+Comando que activa/desactiva los resúmenes en audio por chat (`voz.js`, estado en `voz-state.json`). Con la función activa, un transformer en `bot.api.config.use` intercepta los `sendMessage` largos (≥150 chars, sin errores ni adjuntos) y manda una nota de voz con un resumen (`resumirParaVoz()` en `claude.js`). Voz oficial #1 clonada desde `voz-ref.mp3` (VoxCPM2 vía `@gradio/client` + `ffmpeg`).
+
 ## Estructura de datos
 
 ### Cliente (`clientes/{slug}.json`)

@@ -5,15 +5,49 @@ import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, a
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento, cdDetectarNombreEmpresa } from "./cd.js";
-import { setAiProvider, getCurrentProviderLabel } from "./claude.js";
+import { setAiProvider, getCurrentProviderLabel, resumirParaVoz } from "./claude.js";
 import { tonteria } from "./tonterias.js";
 import { startWebServer, generarTokenWeb } from "./web.js";
 import { startTunnel } from "./tunnel.js";
 import { isDelegated, enterDelegated, closeDelegated, appendInbox, saveUpload, readState, findActiveDelegated } from "./delegado-router.js";
 import { readCache, writeCache, saveScreenshots, invalidateCache, TTL_PENDIENTES, TTL_VENCIMIENTOS } from "./cache.js";
+import { generarNotaVoz, vozHabilitada, toggleVoz } from "./voz.js";
 
 const bot = new Bot(process.env.TG_TOKEN);
 const ADMIN_IDS = (process.env.ADMIN_CHAT_ID || "").split(",").map(s => s.trim()).filter(Boolean);
+
+// ─── Resumen automático en audio (toggle por chat con /voz) ───────────────────
+const VOZ_UMBRAL = 150; // caracteres mínimos para considerar una respuesta "sustanciosa"
+async function enviarResumenVoz(chatId, texto) {
+  let nota;
+  try {
+    const resumen = await resumirParaVoz(texto);
+    if (!resumen) return;
+    await bot.api.sendChatAction(chatId, "record_voice").catch(() => {});
+    nota = await generarNotaVoz(resumen);
+    await bot.api.sendVoice(chatId, new InputFile(nota.path));
+  } catch (e) {
+    console.error("[voz-auto] error:", e?.message || e);
+  } finally {
+    if (nota) await nota.cleanup();
+  }
+}
+bot.api.config.use(async (prev, method, payload, signal) => {
+  const res = await prev(method, payload, signal);
+  try {
+    if (method === "sendMessage" && payload && payload.text && payload.chat_id) {
+      const chatId = String(payload.chat_id);
+      const texto = String(payload.text);
+      if (texto.length >= VOZ_UMBRAL && !texto.startsWith("❌") && vozHabilitada(chatId)) {
+        setImmediate(() => enviarResumenVoz(chatId, texto));
+      }
+    }
+  } catch (e) {
+    console.error("[voz-auto] hook:", e?.message || e);
+  }
+  return res;
+});
+
 
 // ─── Middleware: modo delegado (DEBE ir antes de cualquier bot.command/bot.on) ─
 // Si Bunn está atendiendo a este chat, captura todo (texto + PDF + comandos) y
@@ -699,6 +733,19 @@ bot.command("listo", async (ctx) => {
 });
 
 // ─── Manejador principal ──────────────────────────────────────────────────────
+
+bot.command("voz", async (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const activo = toggleVoz(chatId);
+  if (activo) {
+    await ctx.reply(
+      "🎙️ Resumen en audio ACTIVADO. A partir de ahora te mando una nota de voz resumiendo mis respuestas largas. Mandá /voz de nuevo para desactivarlo."
+    );
+  } else {
+    await ctx.reply("🔇 Resumen en audio DESACTIVADO.");
+  }
+});
+
 
 bot.on("message", async (ctx) => {
   const chatId = String(ctx.chat.id);

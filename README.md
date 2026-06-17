@@ -146,6 +146,17 @@ Muestra tu nombre, si tenés credenciales de CD configuradas, y cuántos tipos d
 
 ---
 
+### `/voz` — Resumen en audio (activar/desactivar)
+
+Interruptor que activa los resúmenes en audio para tu chat. Cuando está activo, además del texto el bot te manda una **nota de voz** con un resumen hablado de sus respuestas largas (voz oficial de ControlApps).
+
+- Mandá `/voz` una vez para **activar** (te confirma "ACTIVADO").
+- Mandá `/voz` de nuevo para **desactivar**.
+- No se generan audios en confirmaciones cortas, errores ni cuando el bot manda fotos/PDFs.
+- El audio llega unos segundos después del texto (la voz se genera con VoxCPM2).
+
+---
+
 ## Automatizaciones
 
 El bot ejecuta dos tareas automáticas sin que tengas que hacer nada:

@@ -5,3 +5,6 @@ clientes/
 pendientes.json
 runtime.json
 test-popup-screenshots/
+voz-state.json
+*.bak
+*.bak2
