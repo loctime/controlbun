@@ -1,8 +1,8 @@
 import "dotenv/config";
 import http from "http";
 import { cargarCliente } from "./clientes.js";
-import { readCache, writeCache, TTL_VENCIMIENTOS } from "./cache.js";
-import { cdObtenerSesionActiva, cdLeerVencimientos, cdInvalidarSesion } from "./cd.js";
+import { readCache, writeCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
+import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion } from "./cd.js";
 
 const PORT = Number(process.env.INTERNAL_API_PORT) || 3110;
 const TOKEN = process.env.INTERNAL_API_TOKEN || "";
@@ -57,6 +57,31 @@ async function obtenerVencimientos(chatId) {
   return { ok: true, fetched_at, proximos, vencidos, thresholds: { diasP, diasV, diasE } };
 }
 
+async function obtenerPendientes(chatId) {
+  const cliente = await cargarCliente(chatId);
+  if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
+
+  let pendientes, fetched_at;
+  const cached = readCache(chatId, "pendientes", TTL_PENDIENTES);
+  if (cached) {
+    pendientes = cached.data || [];
+    fetched_at = cached.fetched_at;
+  } else {
+    if (!cliente.cdUser || !cliente.cdPass) return { ok: false, error: "sin_credenciales" };
+    const ses = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+    if (!ses.ok) { cdInvalidarSesion(chatId); return { ok: false, error: "login_cd", motivo: ses.motivo }; }
+    try {
+      pendientes = await cdLeerRequerimientos(ses.page);
+      writeCache(chatId, "pendientes", pendientes);
+      fetched_at = new Date().toISOString();
+    } catch (e) {
+      cdInvalidarSesion(chatId);
+      return { ok: false, error: "scrape_error", motivo: e.message };
+    }
+  }
+  return { ok: true, fetched_at, pendientes: pendientes || [] };
+}
+
 function sendJSON(res, code, obj) {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
@@ -71,6 +96,12 @@ const server = http.createServer(async (req, res) => {
       const chatId = url.searchParams.get("chatId");
       if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
       const result = await obtenerVencimientos(String(chatId));
+      return sendJSON(res, 200, result);
+    }
+    if (req.method === "GET" && url.pathname === "/internal/pendientes") {
+      const chatId = url.searchParams.get("chatId");
+      if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
+      const result = await obtenerPendientes(String(chatId));
       return sendJSON(res, 200, result);
     }
     return sendJSON(res, 404, { ok: false, error: "not_found" });
