@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
 import cron from "node-cron";
-import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes } from "./clientes.js";
+import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes, crearClienteWA, genLinkCode } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento, cdDetectarNombreEmpresa } from "./cd.js";
@@ -320,31 +320,46 @@ async function getBotUsername() {
 
 bot.command("nuevocliente", async (ctx) => {
   if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
-  const match = ctx.match?.trim().match(/^(\S+)\s+(\S+)$/);
-  if (!match) return ctx.reply("Uso: /nuevocliente NombreApellido CODIGO");
-  const nombre = match[1].replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
-  const codigo = match[2].trim();
+  const partes = (ctx.match || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length < 1) return ctx.reply("Uso: /nuevocliente NombreApellido [waPhone]");
 
-  // El payload de un deep-link de Telegram solo admite [A-Za-z0-9_-] hasta 64 chars.
-  const codigoValidoParaLink = /^[A-Za-z0-9_-]{1,64}$/.test(codigo);
+  // Si el último token tiene dígitos y solo dígitos/símbolos de teléfono → es el waPhone.
+  let waPhone = null;
+  const ultimo = partes[partes.length - 1];
+  if (partes.length >= 2 && /\d/.test(ultimo) && /^[\d+\s().-]+$/.test(ultimo)) {
+    waPhone = partes.pop();
+  }
+  const nombreRaw = partes.join(" ");
+  const nombre = nombreRaw.replace(/([A-Z])/g, " $1").trim().replace(/\b\w/g, (c) => c.toUpperCase());
 
-  await guardarPendiente(codigo, nombre);
+  try {
+    if (waPhone) {
+      const cliente = await crearClienteWA(nombre, waPhone);
+      const username = await getBotUsername();
+      let r = `✅ Cliente <b>${cliente.nombre}</b> creado y listo para WhatsApp (${cliente.waPhone}).\nCódigo de vínculo: <code>${cliente.linkCode}</code>`;
+      if (username) {
+        const link = `https://t.me/${username}?start=${cliente.linkCode}`;
+        r += `\n\n📋 Si algún día quiere usar Telegram, que entre acá (tocá para copiar):\n<pre>${link}</pre>`;
+      }
+      return ctx.reply(r, { parse_mode: "HTML", disable_web_page_preview: true });
+    }
 
-  let respuesta = `✅ Código <code>${codigo}</code> listo para <b>${nombre}</b>.`;
-  if (codigoValidoParaLink) {
+    // Sin waPhone → flujo Telegram-first (deep-link), código auto-generado.
+    const codigo = genLinkCode();
+    await guardarPendiente(codigo, nombre);
     const username = await getBotUsername();
+    let r = `✅ Código <code>${codigo}</code> listo para <b>${nombre}</b>.`;
     if (username) {
       const link = `https://t.me/${username}?start=${codigo}`;
       const primerNombre = nombre.split(/\s+/)[0] || nombre;
-      // Bloque <pre> = Telegram lo muestra como código con "tap para copiar".
-      // Pegás el bloque entero en WhatsApp/mail/lo que sea y el link queda funcional.
       const mensajeParaCliente = `Hola ${primerNombre}! 👋 Iniciate en ControlBun y gestioná Control Documentario desde tu celular: verificá vencimientos, subí documentación y consultá tus requerimientos pendientes, todo desde Telegram.\n\n${link}`;
-      respuesta += `\n\n📋 Mensaje listo para mandarle (tocá el bloque para copiar):\n<pre>${mensajeParaCliente}</pre>`;
+      r += `\n\n📋 Mensaje listo para mandarle (tocá el bloque para copiar):\n<pre>${mensajeParaCliente}</pre>`;
     }
-  } else {
-    respuesta += `\n\n⚠️ El código tiene caracteres que Telegram no permite en deep-links (solo A-Z, a-z, 0-9, guion y guion bajo, máx 64). El cliente va a tener que escribirlo a mano.`;
+    return ctx.reply(r, { parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (e) {
+    console.error("[nuevocliente] error:", e?.message || e);
+    return ctx.reply("❌ No pude crear el cliente ahora. Probá de nuevo en un rato.");
   }
-  return ctx.reply(respuesta, { parse_mode: "HTML", disable_web_page_preview: true });
 });
 
 // /start con payload — usado por el deep-link generado en /nuevocliente.
@@ -1667,7 +1682,8 @@ cron.schedule("0 8 1 * *", async () => {
   const clientes = await listarTodosClientes();
   for (const cliente of clientes) {
     if (!cliente.cdUser || !cliente.cdPass) continue;
-    const chatId = cliente.chatId;
+    const chatId = cliente.telegramChatId;
+    if (!chatId) continue;
     try {
       await bot.api.sendMessage(chatId, "⏳ Grabando parte mensual automático…");
       const sesCD = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
@@ -1698,10 +1714,11 @@ cron.schedule("0 9 * * *", async () => {
   for (const cliente of clientes) {
     if (!cliente.cdUser || !cliente.cdPass) {
       sinCredenciales++;
-      console.log(`[CRON VENC] ⏭ ${cliente.nombre || cliente.chatId} — sin credenciales CD`);
+      console.log(`[CRON VENC] ⏭ ${cliente.nombre || cliente.userId} — sin credenciales CD`);
       continue;
     }
-    const chatId = cliente.chatId;
+    const chatId = cliente.telegramChatId;
+    if (!chatId) continue;
     const diasP = cliente.diasPersonal ?? 10;
     const diasV = cliente.diasVehiculos ?? 10;
     const diasE = cliente.diasEmpresa ?? 10;

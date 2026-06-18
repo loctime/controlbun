@@ -1,26 +1,108 @@
 import fs from "fs/promises";
+import fssync from "fs";
 import path from "path";
 
-const DIR = "./clientes";
-const PENDIENTES = "./pendientes.json";
+function dir() { return process.env.CLIENTES_DIR || "./clientes"; }
+const PENDIENTES = process.env.PENDIENTES_FILE || "./pendientes.json";
 
-export async function cargarCliente(chatId) {
+export function slugify(nombre) {
+  return String(nombre)
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // saca acentos
+    .toLowerCase().trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+export function genLinkCode() {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += abc[Math.floor(Math.random() * abc.length)];
+  return s;
+}
+
+export function normalizeArgWa(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("54")) return d;
+  if (d.length === 10) return "549" + d;
+  return d;
+}
+
+function slugDisponible(base) {
+  const root = base || "cliente";
+  let n = 1;
+  while (true) {
+    const candidato = n === 1 ? root : `${root}-${n}`;
+    if (!fssync.existsSync(path.join(dir(), `${candidato}.json`))) return candidato;
+    n++;
+  }
+}
+
+function clienteBase(userId, nombre, extra) {
+  return {
+    userId, nombre,
+    waPhone: null, telegramChatId: null, linkCode: null,
+    cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10,
+    ...extra,
+  };
+}
+
+async function escribir(cliente) {
+  await fs.writeFile(path.join(dir(), `${cliente.userId}.json`), JSON.stringify(cliente, null, 2));
+  return cliente;
+}
+
+export async function cargarCliente(telegramChatId) {
   try {
-    const archivos = await fs.readdir(DIR);
+    const archivos = await fs.readdir(dir());
     for (const archivo of archivos) {
       if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
-      const data = JSON.parse(await fs.readFile(path.join(DIR, archivo), "utf8"));
-      if (String(data.chatId) === String(chatId)) return data;
+      const data = JSON.parse(await fs.readFile(path.join(dir(), archivo), "utf8"));
+      if (data.telegramChatId != null && String(data.telegramChatId) === String(telegramChatId)) return data;
     }
   } catch {}
   return null;
 }
 
-export async function registrarCliente(chatId, nombre) {
-  const slug = nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-  const cliente = { chatId: String(chatId), nombre, cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10 };
-  await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(cliente, null, 2));
-  return cliente;
+export async function cargarClientePorUserId(userId) {
+  try {
+    const archivos = await fs.readdir(dir());
+    for (const archivo of archivos) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      const data = JSON.parse(await fs.readFile(path.join(dir(), archivo), "utf8"));
+      if (String(data.userId) === String(userId)) return data;
+    }
+  } catch {}
+  return null;
+}
+
+export async function registrarCliente(telegramChatId, nombre) {
+  const userId = slugDisponible(slugify(nombre));
+  return escribir(clienteBase(userId, nombre, { telegramChatId: String(telegramChatId) }));
+}
+
+export async function crearClienteWA(nombre, waPhone) {
+  const userId = slugDisponible(slugify(nombre));
+  return escribir(clienteBase(userId, nombre, { waPhone: normalizeArgWa(waPhone), linkCode: genLinkCode() }));
+}
+
+export async function actualizarCliente(telegramChatId, datos) {
+  const cliente = await cargarCliente(telegramChatId);
+  if (!cliente) return null;
+  return escribir({ ...cliente, ...datos });
+}
+
+export async function listarTodosClientes() {
+  try {
+    const archivos = await fs.readdir(dir());
+    const clientes = [];
+    for (const archivo of archivos) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      try { clientes.push(JSON.parse(await fs.readFile(path.join(dir(), archivo), "utf8"))); } catch {}
+    }
+    return clientes;
+  } catch { return []; }
 }
 
 export async function cargarPendientes() {
@@ -31,32 +113,6 @@ export async function guardarPendiente(codigo, nombre) {
   const pendientes = await cargarPendientes();
   pendientes[codigo] = { nombre };
   await fs.writeFile(PENDIENTES, JSON.stringify(pendientes, null, 2));
-}
-
-export async function actualizarCliente(chatId, datos) {
-  const cliente = await cargarCliente(chatId);
-  if (cliente) {
-    const slug = cliente.nombre.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-    const actualizado = { ...cliente, ...datos };
-    await fs.writeFile(path.join(DIR, `${slug}.json`), JSON.stringify(actualizado, null, 2));
-    return actualizado;
-  }
-  // Si no existe, crear entrada mínima
-  const nuevo = { chatId: String(chatId), nombre: `Usuario ${chatId}`, cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10, ...datos };
-  await fs.writeFile(path.join(DIR, `cliente-${chatId}.json`), JSON.stringify(nuevo, null, 2));
-  return nuevo;
-}
-
-export async function listarTodosClientes() {
-  try {
-    const archivos = await fs.readdir(DIR);
-    const clientes = [];
-    for (const archivo of archivos) {
-      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
-      try { clientes.push(JSON.parse(await fs.readFile(path.join(DIR, archivo), "utf8"))); } catch {}
-    }
-    return clientes;
-  } catch { return []; }
 }
 
 export async function consumirPendiente(codigo) {
