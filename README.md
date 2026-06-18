@@ -191,8 +191,11 @@ Interfaz web para gestionar tus mapeos desde la computadora.
 
 Solo disponibles para el administrador del sistema.
 
-### `/nuevocliente NombreApellido CODIGO`
-Registra un nuevo cliente generando un código de acceso de un solo uso. El cliente escribe ese código en el chat del bot para registrarse.
+### `/nuevocliente NombreApellido [waPhone]`
+Registra un cliente. El `waPhone` es opcional (último token, dígitos):
+- **Con waPhone** → crea el cliente listo para WhatsApp de inmediato (entra al menú ControlBunn) y genera un código de vínculo + deep-link para que sume Telegram cuando quiera.
+- **Sin waPhone** → genera un código/deep-link de alta por Telegram (el cliente lo usa para registrarse).
+El código de vínculo se **genera automáticamente** (ya no se tipea).
 
 ### `/modelo [claude|gemini]`
 Ver o cambiar el modelo de IA que usa el bot para clasificar documentos.

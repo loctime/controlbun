@@ -41,7 +41,7 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 | `/mapeos` | todos | Ver, reemplazar o eliminar mapeos guardados |
 | `/web` | todos | Obtener link de acceso al panel web (expira en 10 min) |
 | `/modelo` | admin | Cambiar provider de AI en runtime: `/modelo claude` o `/modelo gemini` |
-| `/nuevocliente` | admin | Registrar nuevo cliente: `/nuevocliente NombreApellido CODIGO` |
+| `/nuevocliente` | admin | Registrar cliente: `/nuevocliente NombreApellido [waPhone]`. Con waPhone crea cliente WA-first listo para WhatsApp; el código de vínculo se genera solo. |
 | `/miid` | todos | Ver el chat ID propio |
 
 ## Estructura de datos
@@ -49,15 +49,21 @@ Automatiza la subida de documentos PDF a controldocumentario.com usando Claude/G
 ### Cliente (`clientes/{slug}.json`)
 ```json
 {
-  "chatId": "5027660294",
+  "userId": "fernando-vidal",
   "nombre": "Fernando Vidal",
+  "waPhone": "5493364524758",
+  "telegramChatId": "5027660294",
+  "linkCode": null,
   "cdUser": "usuario@empresa.com",
   "cdPass": "contraseña",
-  "diasPersonal": 7,
-  "diasVehiculos": 15,
+  "diasPersonal": 10,
+  "diasVehiculos": 10,
+  "diasEmpresa": 10,
   "nombreEmpresa": "MATESIN CLAUDIO FABIAN"
 }
 ```
+
+**Modelo de identidad (Plan A, 2026-06-17):** `userId` = id interno ESTABLE (slug del nombre, nombre del archivo `<userId>.json`), reemplazó a `chatId`. `waPhone` = dirección WhatsApp (el router WA matchea acá → clientId=userId). `telegramChatId` = dirección Telegram (`cargarCliente` matchea acá). `linkCode` = código auto para vincular el canal faltante (Plan B). `cargarCliente(telegramChatId)` matchea Telegram; `cargarClientePorUserId(userId)` para el resto. Caché/mapeos/cd-sesiones del lado Telegram (bot.js y panel web) van por `telegramChatId`; la API interna (canal WhatsApp) va por `userId`.
 
 `nombreEmpresa` se detecta automáticamente al hacer `/config` leyendo la primera columna del área de trabajo de CD (`cdDetectarNombreEmpresa`). Si la detección falla, el bot pregunta al usuario. Se usa en el prompt de IA para que no confunda el nombre del dueño con empleados, y para que priorice la patente como entidad en documentos de vehículos.
 
