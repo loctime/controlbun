@@ -93,6 +93,32 @@ export async function actualizarCliente(telegramChatId, datos) {
   return escribir({ ...cliente, ...datos });
 }
 
+export async function cargarClientePorLinkCode(code) {
+  if (!code) return null;
+  try {
+    const archivos = await fs.readdir(dir());
+    for (const archivo of archivos) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      const data = JSON.parse(await fs.readFile(path.join(dir(), archivo), "utf8"));
+      if (data.linkCode && String(data.linkCode) === String(code)) return data;
+    }
+  } catch {}
+  return null;
+}
+
+export async function vincularTelegram(code, telegramChatId) {
+  const cliente = await cargarClientePorLinkCode(code);
+  if (!cliente) return null;
+  if (cliente.telegramChatId != null) return null; // ya vinculado
+  return escribir({ ...cliente, telegramChatId: String(telegramChatId), linkCode: null });
+}
+
+export async function setWaPhone(userId, waPhone) {
+  const cliente = await cargarClientePorUserId(userId);
+  if (!cliente) return null;
+  return escribir({ ...cliente, waPhone: normalizeArgWa(waPhone) });
+}
+
 export async function listarTodosClientes() {
   try {
     const archivos = await fs.readdir(dir());

@@ -10,6 +10,7 @@ process.env.CLIENTES_DIR = TMP;
 const {
   slugify, genLinkCode, normalizeArgWa,
   cargarCliente, cargarClientePorUserId, registrarCliente, crearClienteWA, actualizarCliente,
+  cargarClientePorLinkCode, vincularTelegram, setWaPhone,
 } = await import("../clientes.js");
 
 test("slugify", () => {
@@ -69,4 +70,37 @@ test("actualizarCliente por telegramChatId", async () => {
 test("dedup de userId (slug colisionado → -2)", async () => {
   const c2 = await crearClienteWA("Miguel Rojas", "3364345082");
   assert.strictEqual(c2.userId, "miguel-rojas-2");
+});
+
+test("cargarClientePorLinkCode encuentra por linkCode", async () => {
+  const c = await crearClienteWA("Link Uno", "3364341111");
+  const found = await cargarClientePorLinkCode(c.linkCode);
+  assert.ok(found);
+  assert.strictEqual(found.userId, "link-uno");
+  assert.strictEqual(await cargarClientePorLinkCode("ZZZZZZ"), null);
+});
+
+test("vincularTelegram setea telegramChatId, consume el linkCode (un solo uso)", async () => {
+  const c = await crearClienteWA("Link Dos", "3364342222");
+  const v = await vincularTelegram(c.linkCode, "55501");
+  assert.ok(v);
+  assert.strictEqual(String(v.telegramChatId), "55501");
+  assert.strictEqual(v.linkCode, null);
+  // segundo intento con el mismo código → null (ya consumido)
+  assert.strictEqual(await vincularTelegram(c.linkCode, "55502"), null);
+  // ahora se carga por telegramChatId
+  const byTg = await cargarCliente("55501");
+  assert.strictEqual(byTg.userId, "link-dos");
+});
+
+test("vincularTelegram con código inválido → null", async () => {
+  assert.strictEqual(await vincularTelegram("ZZZZZZ", "999"), null);
+});
+
+test("setWaPhone agrega waPhone normalizado a un cliente existente", async () => {
+  const c = await registrarCliente("66601", "Tele Tres");
+  const u = await setWaPhone(c.userId, "3364343333");
+  assert.ok(u);
+  assert.strictEqual(u.waPhone, "5493364343333");
+  assert.strictEqual(await setWaPhone("no-existe", "1"), null);
 });

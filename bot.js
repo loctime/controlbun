@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
 import cron from "node-cron";
-import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes, crearClienteWA, genLinkCode } from "./clientes.js";
+import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes, crearClienteWA, genLinkCode, vincularTelegram, setWaPhone } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento, cdDetectarNombreEmpresa } from "./cd.js";
@@ -362,6 +362,40 @@ bot.command("nuevocliente", async (ctx) => {
   }
 });
 
+async function notificarAdminVinculo(cliente) {
+  for (const id of ADMIN_IDS) {
+    try { await bot.api.sendMessage(id, `🔗 ${cliente.nombre} vinculó su Telegram a su cuenta de ControlBunn.`); } catch {}
+  }
+}
+
+bot.command("conectarcliente", async (ctx) => {
+  if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
+  const partes = (ctx.match || "").trim().split(/\s+/).filter(Boolean);
+
+  // Sin (userId + waPhone) → listar clientes
+  if (partes.length < 2) {
+    const clientes = await listarTodosClientes();
+    if (!clientes.length) return ctx.reply("No hay clientes registrados.");
+    const lineas = clientes.map(c => {
+      const wa = c.waPhone ? `WA:${c.waPhone}` : "WA:—";
+      const tg = c.telegramChatId ? "TG:✓" : "TG:—";
+      return `• <code>${c.userId}</code> — ${c.nombre} (${wa} ${tg})`;
+    });
+    return ctx.reply(`Clientes:\n${lineas.join("\n")}\n\nConectar WhatsApp: <code>/conectarcliente userId waPhone</code>`, { parse_mode: "HTML" });
+  }
+
+  const userId = partes[0];
+  const waPhone = partes[1];
+  try {
+    const cliente = await setWaPhone(userId, waPhone);
+    if (!cliente) return ctx.reply(`No encontré un cliente con userId <code>${userId}</code>.`, { parse_mode: "HTML" });
+    return ctx.reply(`✅ Conecté WhatsApp a <b>${cliente.nombre}</b>: ${cliente.waPhone}. Ya puede escribir por WhatsApp.`, { parse_mode: "HTML" });
+  } catch (e) {
+    console.error("[conectarcliente] error:", e?.message || e);
+    return ctx.reply("❌ No pude conectar el WhatsApp ahora. Probá de nuevo.");
+  }
+});
+
 // /start con payload — usado por el deep-link generado en /nuevocliente.
 // Si vino con código, consume el pendiente y registra al cliente directo.
 // Si vino sin código, da un mensaje genérico de bienvenida.
@@ -377,6 +411,14 @@ bot.command("start", async (ctx) => {
   if (!payload) {
     esperandoCodigo.add(chatId);
     return ctx.reply("Hola 👋 No te conozco todavía. ¿Cuál es tu contraseña de registro?");
+  }
+
+  // ¿El código vincula un cliente WA-first ya existente?
+  const vinculado = await vincularTelegram(payload, chatId);
+  if (vinculado) {
+    esperandoCodigo.delete(chatId);
+    await notificarAdminVinculo(vinculado);
+    return ctx.reply(`¡Listo <b>${vinculado.nombre}</b>! Vinculé tu Telegram con tu cuenta. Ya podés usar /pendientes, /vencimientos, /partemes o mandarme un PDF.`, { parse_mode: "HTML" });
   }
 
   const pendiente = await consumirPendiente(payload);
@@ -1532,6 +1574,12 @@ bot.on("message", async (ctx) => {
   if (cliente) return ctx.reply("No conozco esas palabras... solo manejo comandos y PDF :)");
 
   if (esperandoCodigo.has(chatId)) {
+    const vinculado = await vincularTelegram(texto, chatId);
+    if (vinculado) {
+      esperandoCodigo.delete(chatId);
+      await notificarAdminVinculo(vinculado);
+      return ctx.reply(`¡Listo <b>${vinculado.nombre}</b>! Vinculé tu Telegram con tu cuenta.`, { parse_mode: "HTML" });
+    }
     const pendiente = await consumirPendiente(texto);
     if (pendiente) {
       esperandoCodigo.delete(chatId);
