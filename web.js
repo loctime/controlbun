@@ -170,12 +170,13 @@ async function handle(req, res) {
       }
       clearLoginAttempts(ip);
       if (clientes.length > 1) {
-        sendJson(res, { ambiguous: true, opciones: clientes.map(c => ({ chatId: String(c.chatId), nombre: c.nombre })) });
+        sendJson(res, { ambiguous: true, opciones: clientes.map(c => ({ chatId: String(c.telegramChatId), nombre: c.nombre })) });
         return;
       }
       const cliente = clientes[0];
+      if (!cliente.telegramChatId) { sendJson(res, { error: "Este cliente todavía no tiene Telegram vinculado. Pedí el acceso desde Telegram con /web." }, 403); return; }
       const sid = crypto.randomBytes(32).toString("hex");
-      sessions.set(sid, { chatId: String(cliente.chatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      sessions.set(sid, { chatId: String(cliente.telegramChatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
       res.writeHead(200, {
         "Content-Type": "application/json",
         "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
@@ -196,7 +197,7 @@ async function handle(req, res) {
       const { cdUser, cdPass, chatId } = JSON.parse(body.toString("utf8"));
       if (!cdUser || !cdPass || !chatId) { sendJson(res, { error: "Faltan datos" }, 400); return; }
       const clientes = await buscarClientesPorCredenciales(cdUser.trim(), cdPass);
-      const cliente = clientes.find(c => String(c.chatId) === String(chatId));
+      const cliente = clientes.find(c => String(c.telegramChatId) === String(chatId));
       if (!cliente) {
         recordFailedLogin(ip);
         sendJson(res, { error: "Credenciales incorrectas" }, 401);
@@ -204,7 +205,7 @@ async function handle(req, res) {
       }
       clearLoginAttempts(ip);
       const sid = crypto.randomBytes(32).toString("hex");
-      sessions.set(sid, { chatId: String(cliente.chatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      sessions.set(sid, { chatId: String(cliente.telegramChatId), expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
       res.writeHead(200, {
         "Content-Type": "application/json",
         "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,

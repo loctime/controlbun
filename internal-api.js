@@ -1,6 +1,6 @@
 import "dotenv/config";
 import http from "http";
-import { cargarCliente } from "./clientes.js";
+import { cargarClientePorUserId } from "./clientes.js";
 import { readCache, writeCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
 import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion } from "./cd.js";
 
@@ -26,7 +26,7 @@ function recomputarDiasFaltantes(items) {
 }
 
 async function obtenerVencimientos(chatId) {
-  const cliente = await cargarCliente(chatId);
+  const cliente = await cargarClientePorUserId(chatId);
   if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
   const diasP = cliente.diasPersonal ?? 10;
   const diasV = cliente.diasVehiculos ?? 10;
@@ -58,7 +58,7 @@ async function obtenerVencimientos(chatId) {
 }
 
 async function obtenerPendientes(chatId) {
-  const cliente = await cargarCliente(chatId);
+  const cliente = await cargarClientePorUserId(chatId);
   if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
 
   let pendientes, fetched_at;
