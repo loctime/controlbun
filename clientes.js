@@ -119,6 +119,14 @@ export async function setWaPhone(userId, waPhone) {
   return escribir({ ...cliente, waPhone: normalizeArgWa(waPhone) });
 }
 
+export async function setCdCreds(userId, { cdUser, cdPass, nombreEmpresa } = {}) {
+  const cliente = await cargarClientePorUserId(userId);
+  if (!cliente) return null;
+  const patch = { cdUser, cdPass };
+  if (nombreEmpresa) patch.nombreEmpresa = nombreEmpresa;
+  return escribir({ ...cliente, ...patch });
+}
+
 export async function listarTodosClientes() {
   try {
     const archivos = await fs.readdir(dir());

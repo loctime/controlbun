@@ -10,7 +10,7 @@ process.env.CLIENTES_DIR = TMP;
 const {
   slugify, genLinkCode, normalizeArgWa,
   cargarCliente, cargarClientePorUserId, registrarCliente, crearClienteWA, actualizarCliente,
-  cargarClientePorLinkCode, vincularTelegram, setWaPhone,
+  cargarClientePorLinkCode, vincularTelegram, setWaPhone, setCdCreds,
 } = await import("../clientes.js");
 
 test("slugify", () => {
@@ -103,4 +103,29 @@ test("setWaPhone agrega waPhone normalizado a un cliente existente", async () =>
   assert.ok(u);
   assert.strictEqual(u.waPhone, "5493364343333");
   assert.strictEqual(await setWaPhone("no-existe", "1"), null);
+});
+
+test("setCdCreds guarda credenciales CD por userId", async () => {
+  const c = await crearClienteWA("Cred Uno", "3364344444");
+  const u = await setCdCreds(c.userId, { cdUser: "cred@x.com", cdPass: "secreta" });
+  assert.ok(u);
+  assert.strictEqual(u.cdUser, "cred@x.com");
+  assert.strictEqual(u.cdPass, "secreta");
+  // persiste
+  const reload = await cargarClientePorUserId(c.userId);
+  assert.strictEqual(reload.cdUser, "cred@x.com");
+});
+
+test("setCdCreds guarda nombreEmpresa cuando se provee, lo omite si no", async () => {
+  const c = await crearClienteWA("Cred Dos", "3364345555");
+  const conEmp = await setCdCreds(c.userId, { cdUser: "a@b.com", cdPass: "p", nombreEmpresa: "ACME SA" });
+  assert.strictEqual(conEmp.nombreEmpresa, "ACME SA");
+  // sin nombreEmpresa no pisa el existente
+  const sinEmp = await setCdCreds(c.userId, { cdUser: "a@b.com", cdPass: "p2" });
+  assert.strictEqual(sinEmp.nombreEmpresa, "ACME SA");
+  assert.strictEqual(sinEmp.cdPass, "p2");
+});
+
+test("setCdCreds en cliente inexistente → null", async () => {
+  assert.strictEqual(await setCdCreds("no-existe", { cdUser: "x", cdPass: "y" }), null);
 });

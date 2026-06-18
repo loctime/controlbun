@@ -1,8 +1,8 @@
 import "dotenv/config";
 import http from "http";
-import { cargarClientePorUserId } from "./clientes.js";
-import { readCache, writeCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
-import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion } from "./cd.js";
+import { cargarClientePorUserId, setCdCreds } from "./clientes.js";
+import { readCache, writeCache, invalidateCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
+import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion, cdDetectarNombreEmpresa } from "./cd.js";
 
 const PORT = Number(process.env.INTERNAL_API_PORT) || 3110;
 const TOKEN = process.env.INTERNAL_API_TOKEN || "";
@@ -82,6 +82,34 @@ async function obtenerPendientes(chatId) {
   return { ok: true, fetched_at, pendientes: pendientes || [] };
 }
 
+// Prueba el login con el código Playwright existente y, si anda, guarda las credenciales.
+// Mismo flujo que /config de Telegram (bot.js): cdInvalidarSesion → cdObtenerSesionActiva → guardar.
+async function configurarCuenta(chatId, cdUser, cdPass) {
+  const cliente = await cargarClientePorUserId(chatId);
+  if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
+  if (!cdUser || !cdPass) return { ok: false, error: "faltan_credenciales" };
+
+  cdInvalidarSesion(chatId); // credenciales nuevas requieren login fresco
+  const ses = await cdObtenerSesionActiva(chatId, cdUser, cdPass);
+  if (!ses.ok) { cdInvalidarSesion(chatId); return { ok: false, error: "login_cd", motivo: ses.motivo }; }
+
+  let nombreEmpresa = null;
+  try { nombreEmpresa = await cdDetectarNombreEmpresa(ses.page); } catch { nombreEmpresa = null; }
+
+  await setCdCreds(chatId, { cdUser, cdPass, nombreEmpresa });
+  invalidateCache(chatId); // limpia vencimientos+pendientes cacheados con credenciales viejas
+  return { ok: true, nombreEmpresa: nombreEmpresa || null };
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", c => { data += c; if (data.length > 1e6) req.destroy(); });
+    req.on("end", () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on("error", reject);
+  });
+}
+
 function sendJSON(res, code, obj) {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
@@ -102,6 +130,15 @@ const server = http.createServer(async (req, res) => {
       const chatId = url.searchParams.get("chatId");
       if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
       const result = await obtenerPendientes(String(chatId));
+      return sendJSON(res, 200, result);
+    }
+    if (req.method === "POST" && url.pathname === "/internal/config") {
+      let body;
+      try { body = await readBody(req); } catch { return sendJSON(res, 400, { ok: false, error: "bad_json" }); }
+      const chatId = body.chatId;
+      if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
+      if (!body.cdUser || !body.cdPass) return sendJSON(res, 400, { ok: false, error: "faltan_credenciales" });
+      const result = await configurarCuenta(String(chatId), String(body.cdUser), String(body.cdPass));
       return sendJSON(res, 200, result);
     }
     return sendJSON(res, 404, { ok: false, error: "not_found" });
