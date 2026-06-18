@@ -8,3 +8,4 @@ test-popup-screenshots/
 voz-state.json
 *.bak
 *.bak2
+*.bak.*
