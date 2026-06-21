@@ -1849,7 +1849,14 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   const { items: itemsEmp, info: infoVerifEmp } =
     await verificarItemsConUltimoEstado("Empresa", itemsEmpRaw, diasEmpresa);
   console.log(`[VENC] Empresa: verificación SOAP — ${infoVerifEmp.verificados} consultas, ${infoVerifEmp.corregidos} corregidos, ${infoVerifEmp.descartados} descartados, ${infoVerifEmp.pendientesAprob} pend.aprob`);
-  todosItems.push(...itemsGen);
+  // El ítem "general" (resumen "Documentación vigente hasta el DD/MM") trae idRequerimiento +
+  // codigoDocumento cuando hay una sola coincidencia (ej. Inscrip ARCA) → también hay que
+  // verificarlo contra getDocumentoUltimoEstado, igual que Personal/Empresa/Vehículos. Sin esto
+  // un documento del proveedor ya renovado/subido se reportaba como próximo a vencer (falso positivo).
+  const { items: itemsGenVerif, info: infoVerifGen } =
+    await verificarItemsConUltimoEstado("General", itemsGen, diasEmpresa);
+  console.log(`[VENC] General: verificación SOAP — ${infoVerifGen.verificados} consultas, ${infoVerifGen.corregidos} corregidos, ${infoVerifGen.descartados} descartados, ${infoVerifGen.pendientesAprob} pend.aprob`);
+  todosItems.push(...itemsGenVerif);
   todosItems.push(...itemsEmp);
   if (masCercanosGen?.length) debugPorTipo.general = masCercanosGen;
   if (masCercanosEmp?.length) debugPorTipo.empresa = masCercanosEmp;
