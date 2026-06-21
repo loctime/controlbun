@@ -1751,19 +1751,32 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         const idSource = tag(res.text, "IdRequerimientoSource");
         const idLast = tag(res.text, "IdRequerimientoLast");
         const vHastaLast = parseIso(tag(res.text, "VigenciaHastaLast"));
+        // FileNameLast vacío (<FileNameLast />) → tag() devuelve null: NO hay archivo subido.
+        const fileNameLast = tag(res.text, "FileNameLast");
         if (idSource && idLast && idSource === idLast) {
           resultados.set(key, { mantener: true, item: it, motivo: "source==last" });
           continue;
         }
         // Hay un requerimiento más reciente
         if (!vHastaLast) {
-          // Hay una renovación más nueva ya subida pero todavía SIN vigencia asignada:
-          // está PENDIENTE DE APROBACIÓN en CD. No es un "tenés que subir" — ya está subido.
-          // La mantenemos pero marcada, para reportarla en una sección aparte informativa.
+          // El "last" no tiene vigencia asignada. Hay que distinguir dos casos:
+          if (fileNameLast && fileNameLast.trim()) {
+            // (a) Tiene archivo subido pero sin vigencia → renovación realmente SUBIDA,
+            //     PENDIENTE DE APROBACIÓN en CD. La marcamos para sección informativa aparte.
+            resultados.set(key, {
+              mantener: true,
+              item: { ...it, estadoRenovacion: "pendiente_aprobacion", _renovacionLast: idLast },
+              motivo: `renovación pendiente de aprobación (last=${idLast}, file=${fileNameLast})`,
+            });
+            continue;
+          }
+          // (b) Sin archivo (FileNameLast vacío) → es un requerimiento futuro VACÍO creado en CD,
+          //     NO un documento subido. El de la celda (Source) sigue siendo el vigente y está
+          //     por vencer de verdad. Lo mantenemos como próximo a vencer normal (no "ya subido").
           resultados.set(key, {
             mantener: true,
-            item: { ...it, estadoRenovacion: "pendiente_aprobacion", _renovacionLast: idLast },
-            motivo: `renovación pendiente de aprobación (last=${idLast})`,
+            item: it,
+            motivo: `last sin archivo (slot futuro vacío, last=${idLast}) — se mantiene como próximo a vencer`,
           });
           continue;
         }
