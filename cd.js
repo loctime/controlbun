@@ -1555,33 +1555,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       masCercanosEmpresa: [],
     };
 
-    const bodyText = document.body?.innerText || "";
-    const matchGeneral = bodyText.match(/documentaci[oó]n\s+vigente\s+hasta\s+el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    if (matchGeneral) {
-      const fechaTxt = matchGeneral[1];
-      const f = parseFecha(fechaTxt);
-      if (f) {
-        const dias = Math.round((f - hoy) / 864e5);
-        resultado.totalGeneral = 1;
-        resultado.masCercanosGeneral = [{
-          tipo: "general",
-          nombre: "Proveedor",
-          columna: "Documentacion vigente",
-          fecha: fechaTxt,
-          diasFaltantes: dias,
-        }];
-        if (dias >= 0 && dias <= uGeneral) {
-          resultado.generalItems.push({
-            tipo: "general",
-            nombre: "Proveedor",
-            columna: "Documentacion vigente",
-            fecha: fechaTxt,
-            diasFaltantes: dias,
-          });
-        }
-      }
-    }
-
+    // ── 1. Tabla "Empresa": cada columna es un requerimiento del proveedor ──
     let mejor = null;
     let maxF = -1;
     for (const t of document.querySelectorAll("table")) {
@@ -1601,40 +1575,82 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       }
     }
 
-    if (!mejor) return resultado;
-    const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
-    for (const tr of mejor.querySelectorAll("tr")) {
-      const tds = Array.from(tr.querySelectorAll("td"));
-      if (!tds.length) continue;
-      for (let i = 0; i < tds.length; i++) {
-        const f = parseFecha(tds[i].textContent);
-        if (!f) continue;
-        resultado.totalEmpresa++;
-        const col = (headers[i] || "").trim();
-        const dias = Math.round((f - hoy) / 864e5);
-        const onclickAttr = tds[i].getAttribute("onclick") || "";
-        const lrs = onclickAttr.match(/LRSopen\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
-        const idRequerimiento = lrs ? lrs[1] : null;
-        const codigoDocumento = lrs ? lrs[2] : null;
-        resultado.masCercanosEmpresa = acumularMasCercanos(resultado.masCercanosEmpresa, {
-          tipo: "empresa",
-          nombre: "Proveedor",
-          columna: col,
-          fecha: (tds[i].textContent || "").trim(),
-          diasFaltantes: dias,
-          idRequerimiento, codigoDocumento,
-        });
-        if (dias < 0 || dias > uEmpresa) continue;
-        resultado.empresaItems.push({
-          tipo: "empresa",
-          nombre: "Proveedor",
-          columna: col,
-          fecha: (tds[i].textContent || "").trim(),
-          diasFaltantes: dias,
-          idRequerimiento, codigoDocumento,
-        });
+    if (mejor) {
+      const headers = Array.from(mejor.querySelectorAll("th")).map(th => (th.textContent || "").trim());
+      for (const tr of mejor.querySelectorAll("tr")) {
+        const tds = Array.from(tr.querySelectorAll("td"));
+        if (!tds.length) continue;
+        for (let i = 0; i < tds.length; i++) {
+          const f = parseFecha(tds[i].textContent);
+          if (!f) continue;
+          resultado.totalEmpresa++;
+          const col = (headers[i] || "").trim();
+          const dias = Math.round((f - hoy) / 864e5);
+          const onclickAttr = tds[i].getAttribute("onclick") || "";
+          const lrs = onclickAttr.match(/LRSopen\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/);
+          const idRequerimiento = lrs ? lrs[1] : null;
+          const codigoDocumento = lrs ? lrs[2] : null;
+          resultado.masCercanosEmpresa = acumularMasCercanos(resultado.masCercanosEmpresa, {
+            tipo: "empresa",
+            nombre: "Proveedor",
+            columna: col,
+            fecha: (tds[i].textContent || "").trim(),
+            diasFaltantes: dias,
+            idRequerimiento, codigoDocumento,
+          });
+          if (dias < 0 || dias > uEmpresa) continue;
+          resultado.empresaItems.push({
+            tipo: "empresa",
+            nombre: "Proveedor",
+            columna: col,
+            fecha: (tds[i].textContent || "").trim(),
+            diasFaltantes: dias,
+            idRequerimiento, codigoDocumento,
+          });
+        }
       }
     }
+
+    // ── 2. Resumen "Documentación vigente hasta el DD/MM/AAAA" ──
+    // Es la fecha de vencimiento más próxima del proveedor (CD la calcula y la muestra
+    // como texto). En vez de reportar el genérico "Documentación vigente", buscamos en la
+    // tabla Empresa qué requerimiento(s) vencen en esa misma fecha para nombrar el
+    // documento real que está por vencer (ej. "Inscrip ARCA", "Nómina de ART", etc.).
+    const bodyText = document.body?.innerText || "";
+    const matchGeneral = bodyText.match(/documentaci[oó]n\s+vigente\s+hasta\s+el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (matchGeneral) {
+      const fechaTxt = matchGeneral[1];
+      const f = parseFecha(fechaTxt);
+      if (f) {
+        const dias = Math.round((f - hoy) / 864e5);
+        const coincidentes = resultado.masCercanosEmpresa.filter(it => it.fecha === fechaTxt);
+        const nombreDoc = coincidentes.length
+          ? [...new Set(coincidentes.map(it => it.columna).filter(Boolean))].join(", ")
+          : "Documentación vigente";
+        const item = {
+          tipo: "general",
+          nombre: "Proveedor",
+          columna: nombreDoc || "Documentación vigente",
+          fecha: fechaTxt,
+          diasFaltantes: dias,
+        };
+        if (coincidentes.length === 1) {
+          item.idRequerimiento = coincidentes[0].idRequerimiento || null;
+          item.codigoDocumento = coincidentes[0].codigoDocumento || null;
+        }
+        resultado.totalGeneral = 1;
+        resultado.masCercanosGeneral = [item];
+        if (dias >= 0 && dias <= uGeneral) {
+          resultado.generalItems.push({ ...item });
+        }
+        // Evitar duplicado: los items Empresa que vencen en la fecha del resumen ya
+        // quedan representados por este item "general" (mismo documento y fecha).
+        if (coincidentes.length) {
+          resultado.empresaItems = resultado.empresaItems.filter(it => it.fecha !== fechaTxt);
+        }
+      }
+    }
+
     return resultado;
   }, [umbralGeneral, umbralEmpresa]);
 
@@ -1741,7 +1757,14 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         }
         // Hay un requerimiento más reciente
         if (!vHastaLast) {
-          resultados.set(key, { mantener: false, item: it, motivo: `last sin vigencia (last=${idLast})` });
+          // Hay una renovación más nueva ya subida pero todavía SIN vigencia asignada:
+          // está PENDIENTE DE APROBACIÓN en CD. No es un "tenés que subir" — ya está subido.
+          // La mantenemos pero marcada, para reportarla en una sección aparte informativa.
+          resultados.set(key, {
+            mantener: true,
+            item: { ...it, estadoRenovacion: "pendiente_aprobacion", _renovacionLast: idLast },
+            motivo: `renovación pendiente de aprobación (last=${idLast})`,
+          });
           continue;
         }
         const nuevosDias = Math.round((vHastaLast - hoy) / 864e5);
@@ -1760,6 +1783,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
 
     let corregidos = 0;
     let descartados = 0;
+    let pendientesAprob = 0;
     const finales = [];
     for (const it of items) {
       if (!it.idRequerimiento || !it.codigoDocumento) { finales.push(it); continue; }
@@ -1771,13 +1795,16 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
         console.log(`[VENC] ${label}: descartado ${it.nombre} / ${it.columna} (${it.fecha}) — ${r.motivo}`);
         continue;
       }
-      if (r.item._corregidoDesde) {
+      if (r.item.estadoRenovacion === "pendiente_aprobacion") {
+        pendientesAprob++;
+        console.log(`[VENC] ${label}: ya subido / pendiente de aprobación ${it.nombre} / ${it.columna} (${it.fecha}) — ${r.motivo}`);
+      } else if (r.item._corregidoDesde) {
         corregidos++;
         console.log(`[VENC] ${label}: corregido ${it.nombre} / ${it.columna} ${r.item._corregidoDesde} → ${r.item.fecha} — ${r.motivo}`);
       }
       finales.push(r.item);
     }
-    return { items: finales, info: { verificados: candidatos.length, corregidos, descartados } };
+    return { items: finales, info: { verificados: candidatos.length, corregidos, descartados, pendientesAprob } };
   };
 
   const selPers = await seleccionarTipo("personal");
@@ -1787,7 +1814,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
     await reintentarLectura("Personal", () => leerTabla("personal", diasPersonal));
   const { items: itemsPers, info: infoVerifPers } =
     await verificarItemsConUltimoEstado("Personal", itemsPersRaw, diasPersonal);
-  console.log(`[VENC] Personal: verificación SOAP — ${infoVerifPers.verificados} consultas, ${infoVerifPers.corregidos} corregidos, ${infoVerifPers.descartados} descartados`);
+  console.log(`[VENC] Personal: verificación SOAP — ${infoVerifPers.verificados} consultas, ${infoVerifPers.corregidos} corregidos, ${infoVerifPers.descartados} descartados, ${infoVerifPers.pendientesAprob} pend.aprob`);
   todosItems.push(...itemsPers);
   if (masCercanosPers?.length) debugPorTipo.personal = masCercanosPers;
   console.log(`[VENC] Personal: ${itemsPers.length} items (${totalPers} fechas detectadas, post-verificación)`);
@@ -1808,7 +1835,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
   } = await leerResumenProveedor(umbralMax, diasEmpresa);
   const { items: itemsEmp, info: infoVerifEmp } =
     await verificarItemsConUltimoEstado("Empresa", itemsEmpRaw, diasEmpresa);
-  console.log(`[VENC] Empresa: verificación SOAP — ${infoVerifEmp.verificados} consultas, ${infoVerifEmp.corregidos} corregidos, ${infoVerifEmp.descartados} descartados`);
+  console.log(`[VENC] Empresa: verificación SOAP — ${infoVerifEmp.verificados} consultas, ${infoVerifEmp.corregidos} corregidos, ${infoVerifEmp.descartados} descartados, ${infoVerifEmp.pendientesAprob} pend.aprob`);
   todosItems.push(...itemsGen);
   todosItems.push(...itemsEmp);
   if (masCercanosGen?.length) debugPorTipo.general = masCercanosGen;
@@ -1839,7 +1866,7 @@ export async function cdLeerVencimientos(page, diasPersonal = 10, diasVehiculos 
       await reintentarLectura("Vehiculos", () => leerTabla("vehiculo", diasVehiculos));
     const { items: itemsMaq, info: infoVerifMaq } =
       await verificarItemsConUltimoEstado("Vehiculos", itemsMaqRaw, diasVehiculos);
-    console.log(`[VENC] Vehiculos: verificación SOAP — ${infoVerifMaq.verificados} consultas, ${infoVerifMaq.corregidos} corregidos, ${infoVerifMaq.descartados} descartados`);
+    console.log(`[VENC] Vehiculos: verificación SOAP — ${infoVerifMaq.verificados} consultas, ${infoVerifMaq.corregidos} corregidos, ${infoVerifMaq.descartados} descartados, ${infoVerifMaq.pendientesAprob} pend.aprob`);
     todosItems.push(...itemsMaq);
     if (masCercanosMaq?.length) debugPorTipo.vehiculo = masCercanosMaq;
     console.log(`[VENC] Vehiculos: ${itemsMaq.length} items (${totalMaq} fechas detectadas, post-verificación)`);

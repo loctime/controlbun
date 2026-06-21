@@ -543,11 +543,13 @@ bot.command("vencimientos", async (ctx) => {
 
   const tag = "";
 
-  // /vencimientos solo muestra los PRÓXIMOS a vencer (diasFaltantes >= 0).
-  // Los vencidos (< 0) se ven con /vencidos.
-  const proximos = (items || []).filter(i => i.diasFaltantes >= 0);
+  // /vencimientos muestra los PRÓXIMOS a vencer (diasFaltantes >= 0) y, aparte,
+  // los que ya subiste y están pendientes de aprobación. Los vencidos (< 0) → /vencidos.
+  const esPendiente = (i) => i.estadoRenovacion === "pendiente_aprobacion";
+  const proximos = (items || []).filter(i => !esPendiente(i) && i.diasFaltantes >= 0);
+  const yaSubidoPendiente = (items || []).filter(esPendiente);
 
-  if (!proximos.length) {
+  if (!proximos.length && !yaSubidoPendiente.length) {
     const umbralMsg = (diasE === diasP && diasP === diasV)
       ? `los próximos ${diasE} días`
       : `los próximos días (empresa ${diasE}d · personal ${diasP}d · vehículos ${diasV}d)`;
@@ -556,7 +558,13 @@ bot.command("vencimientos", async (ctx) => {
       { parse_mode: "HTML" }
     );
   } else {
-    const chunks = [..._chunksVenc(_buildMsgVencimientos(proximos, diasP, diasV, diasE))];
+    let msg = "";
+    if (proximos.length) msg += _buildMsgVencimientos(proximos, diasP, diasV, diasE);
+    if (yaSubidoPendiente.length) {
+      if (msg) msg += "\n\n";
+      msg += _buildMsgPendienteAprob(yaSubidoPendiente);
+    }
+    const chunks = [..._chunksVenc(msg)];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i] + (i === 0 ? tag : "");
       await ctx.reply(chunk, { parse_mode: "HTML" });
@@ -1660,6 +1668,21 @@ function _buildMsgVencimientos(items, diasP, diasV, diasE = 10) {
   bloque("🏢 <b>EMPRESA</b>", empresa, true);
   bloque("👷 <b>PERSONAL</b>", personal);
   bloque("🚗 <b>VEHÍCULOS</b>", vehiculos);
+  return partes.join("\n");
+}
+
+function _buildMsgPendienteAprob(items) {
+  const partes = [
+    `✅ <b>Ya subido — esperando aprobación</b>`,
+    `<i>Estos vencen pronto, pero ya subiste la renovación y está pendiente de aprobación en CD. No hace falta volver a subir.</i>`,
+  ];
+  const ordenada = [...items].sort((a, b) => a.diasFaltantes - b.diasFaltantes);
+  for (const it of ordenada.slice(0, 60)) {
+    const nombre = (it.nombre && it.tipo !== "empresa" && it.tipo !== "general")
+      ? ` — ${escapeHtml(it.nombre)}` : "";
+    partes.push(`✅ ${escapeHtml(it.columna)}${nombre} — vence ${it.fecha}`);
+  }
+  if (ordenada.length > 60) partes.push(`…y ${ordenada.length - 60} más.`);
   return partes.join("\n");
 }
 

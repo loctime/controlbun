@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { resolverUserId } from "./clientes.js";
 
 const DIR = "./mapeos";
 
@@ -10,6 +11,7 @@ async function ensureDir(clienteId) {
 }
 
 export async function guardarMapeo(clienteId, nombre, datos) {
+  clienteId = resolverUserId(clienteId);
   const dir = await ensureDir(clienteId);
   await fs.writeFile(
     path.join(dir, `${nombre}.json`),
@@ -18,6 +20,7 @@ export async function guardarMapeo(clienteId, nombre, datos) {
 }
 
 export async function leerMapeo(clienteId, nombre) {
+  clienteId = resolverUserId(clienteId);
   try {
     const data = JSON.parse(
       await fs.readFile(path.join(DIR, String(clienteId), `${nombre}.json`), "utf8")
@@ -38,6 +41,7 @@ export async function leerMapeo(clienteId, nombre) {
 }
 
 export async function listarMapeos(clienteId) {
+  clienteId = resolverUserId(clienteId);
   try {
     const files = await fs.readdir(path.join(DIR, String(clienteId)));
     return files.filter((f) => f.endsWith(".json")).map((f) => f.replace(".json", ""));
@@ -47,6 +51,7 @@ export async function listarMapeos(clienteId) {
 }
 
 export async function leerTodosMapeos(clienteId) {
+  clienteId = resolverUserId(clienteId);
   const nombres = await listarMapeos(clienteId);
   const refs = [];
   for (const nombre of nombres) {
@@ -57,12 +62,14 @@ export async function leerTodosMapeos(clienteId) {
 }
 
 export async function eliminarMapeo(clienteId, nombre) {
+  clienteId = resolverUserId(clienteId);
   try {
     await fs.unlink(path.join(DIR, String(clienteId), `${nombre}.json`));
   } catch {}
 }
 
 export async function leerMapeoBruto(clienteId, nombre) {
+  clienteId = resolverUserId(clienteId);
   try {
     return JSON.parse(await fs.readFile(path.join(DIR, String(clienteId), `${nombre}.json`), "utf8"));
   } catch {
@@ -75,6 +82,7 @@ export async function leerMapeoBruto(clienteId, nombre) {
 const _baseNombreMapeo = (s) => String(s || "").replace(/-\d{4}-\d+$/i, "").trim().toLowerCase();
 
 export async function guardarTipoMapeo(clienteId, nombreBase, tipo) {
+  clienteId = resolverUserId(clienteId);
   const nombres = await listarMapeos(clienteId);
   for (const nombre of nombres) {
     if (_baseNombreMapeo(nombre) === _baseNombreMapeo(nombreBase)) {
@@ -90,6 +98,7 @@ export async function guardarTipoMapeo(clienteId, nombreBase, tipo) {
 }
 
 export async function leerTipoMapeo(clienteId, nombreBase) {
+  clienteId = resolverUserId(clienteId);
   const nombres = await listarMapeos(clienteId);
   for (const nombre of nombres) {
     if (_baseNombreMapeo(nombre) === _baseNombreMapeo(nombreBase)) {
@@ -103,6 +112,7 @@ export async function leerTipoMapeo(clienteId, nombreBase) {
 }
 
 export async function leerTodosMapeosPorTipo(clienteId) {
+  clienteId = resolverUserId(clienteId);
   const nombres = await listarMapeos(clienteId);
   const resultado = [];
   for (const nombre of nombres) {

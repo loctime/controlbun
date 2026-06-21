@@ -52,9 +52,11 @@ async function obtenerVencimientos(chatId) {
     }
   }
 
-  const proximos = items.filter(i => typeof i.diasFaltantes === "number" && i.diasFaltantes >= 0);
-  const vencidos = items.filter(i => typeof i.diasFaltantes === "number" && i.diasFaltantes < 0);
-  return { ok: true, fetched_at, proximos, vencidos, thresholds: { diasP, diasV, diasE } };
+  const esPendiente = (i) => i.estadoRenovacion === "pendiente_aprobacion";
+  const yaSubidoPendiente = items.filter(esPendiente);
+  const proximos = items.filter(i => !esPendiente(i) && typeof i.diasFaltantes === "number" && i.diasFaltantes >= 0);
+  const vencidos = items.filter(i => !esPendiente(i) && typeof i.diasFaltantes === "number" && i.diasFaltantes < 0);
+  return { ok: true, fetched_at, proximos, vencidos, yaSubidoPendiente, thresholds: { diasP, diasV, diasE } };
 }
 
 async function obtenerPendientes(chatId) {

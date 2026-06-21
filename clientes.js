@@ -77,6 +77,25 @@ export async function cargarClientePorUserId(userId) {
   return null;
 }
 
+// Resuelve cualquier id (telegramChatId numérico o userId slug) al userId canónico.
+// Idempotente: si ya es userId lo devuelve igual; si es un telegramChatId vinculado
+// devuelve el userId del cliente; si no matchea nada devuelve el id tal cual.
+export function resolverUserId(id) {
+  const sid = String(id);
+  try {
+    let porTelegram = null;
+    for (const archivo of fssync.readdirSync(dir())) {
+      if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
+      let data;
+      try { data = JSON.parse(fssync.readFileSync(path.join(dir(), archivo), "utf8")); } catch { continue; }
+      if (String(data.userId) === sid) return sid;
+      if (data.telegramChatId != null && String(data.telegramChatId) === sid) porTelegram = String(data.userId);
+    }
+    if (porTelegram) return porTelegram;
+  } catch {}
+  return sid;
+}
+
 export async function registrarCliente(telegramChatId, nombre) {
   const userId = slugDisponible(slugify(nombre));
   return escribir(clienteBase(userId, nombre, { telegramChatId: String(telegramChatId) }));

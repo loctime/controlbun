@@ -14,6 +14,7 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { resolverUserId } from './clientes.js';
 
 const CACHE_DIR = '/opt/bunn/cache';
 
@@ -30,6 +31,7 @@ function screenshotsDir(chatId) {
 
 // Devuelve { fetched_at, age_seconds, data } o null si no hay cache fresco.
 export function readCache(chatId, tipo, ttlSeconds) {
+  chatId = resolverUserId(chatId);
   const path = cachePath(chatId, tipo);
   if (!existsSync(path)) return null;
   try {
@@ -45,6 +47,7 @@ export function readCache(chatId, tipo, ttlSeconds) {
 }
 
 export function writeCache(chatId, tipo, data) {
+  chatId = resolverUserId(chatId);
   const dir = join(CACHE_DIR, String(chatId));
   mkdirSync(dir, { recursive: true });
   const payload = { fetched_at: new Date().toISOString(), data };
@@ -67,6 +70,7 @@ function purgeOldScreenshots(chatId, tipo) {
 // Convierte screenshots con `buffer` a archivos en disco y devuelve [{name, path}].
 // Compatible con el formato que graba cd-listar-vencimientos.js de Bunn.
 export function saveScreenshots(chatId, tipo, screenshots) {
+  chatId = resolverUserId(chatId);
   if (!screenshots || !screenshots.length) return [];
   purgeOldScreenshots(chatId, tipo);
   const dir = screenshotsDir(chatId);
@@ -83,6 +87,7 @@ export function saveScreenshots(chatId, tipo, screenshots) {
 
 // Borra todo el cache de un chatId (o solo un tipo si se pasa).
 export function invalidateCache(chatId, tipo = null) {
+  chatId = resolverUserId(chatId);
   const dir = join(CACHE_DIR, String(chatId));
   if (!existsSync(dir)) return 0;
   let count = 0;

@@ -4,6 +4,7 @@ import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { leerTodosMapeosPorTipo, leerMapeoBruto, eliminarMapeo, guardarMapeo } from "./mapeos.js";
+import { resolverUserId } from "./clientes.js";
 import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 import { cdObtenerSesionActiva, cdLeerTiposRequerimientos } from "./cd.js";
@@ -227,7 +228,7 @@ async function handle(req, res) {
 
     // GET /api/requirements
     if (p === "/api/requirements" && method === "GET") {
-      const reqFile = path.join("mapeos", chatId, "_requirements.json");
+      const reqFile = path.join("mapeos", resolverUserId(chatId), "_requirements.json");
       try {
         const data = JSON.parse(await fs.readFile(reqFile, "utf8"));
         sendJson(res, data);
@@ -252,8 +253,8 @@ async function handle(req, res) {
         }
         const tipos = await cdLeerTiposRequerimientos(sesion.page);
         const data = { tipos, timestamp: Date.now() };
-        await fs.mkdir(path.join("mapeos", chatId), { recursive: true });
-        await fs.writeFile(path.join("mapeos", chatId, "_requirements.json"), JSON.stringify(data, null, 2));
+        await fs.mkdir(path.join("mapeos", resolverUserId(chatId)), { recursive: true });
+        await fs.writeFile(path.join("mapeos", resolverUserId(chatId), "_requirements.json"), JSON.stringify(data, null, 2));
         sendJson(res, data);
       } catch (e) {
         sendJson(res, { error: `Error al obtener requerimientos: ${e.message}` }, 500);
