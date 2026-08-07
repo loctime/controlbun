@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 
 // ── Passwords (scrypt, sin dependencias nuevas) ─────────────────────────────
 export function hashPassword(password) {
@@ -66,4 +67,33 @@ export class AdminError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+// ── Capacidades (registro JSON de clientes y sus sistemas autorizados) ──────
+export const SISTEMAS_VALIDOS = ["bunn", "redes", "entrevista"];
+
+function capacidadesPath() {
+  return process.env.CAPACIDADES_PATH || "/opt/cazador/config-state/capacidades.json";
+}
+
+export async function leerCapacidades() {
+  try {
+    return JSON.parse(await fs.readFile(capacidadesPath(), "utf8"));
+  } catch (e) {
+    if (e.code === "ENOENT") return {};
+    throw new Error(`capacidades.json ilegible: ${e.message}`);
+  }
+}
+
+export async function escribirCapacidades(reg) {
+  await fs.writeFile(capacidadesPath(), JSON.stringify(reg, null, 2));
+}
+
+// ── Estado de trial (cálculo de vigencia y días restantes) ───────────────────
+export function trialEstadoDe(trialUntil) {
+  if (!trialUntil) return { estado: "permanente", dias: null };
+  const t = Date.parse(trialUntil);
+  if (Number.isNaN(t)) return { estado: "permanente", dias: null };
+  const dias = Math.ceil((t - Date.now()) / 86400000);
+  return { estado: dias < 0 ? "vencido" : "vigente", dias };
 }
