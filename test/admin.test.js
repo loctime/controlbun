@@ -260,3 +260,56 @@ test("bajaCliente: mueve a .deleted y saca la entrada de capacidades.json", asyn
   const cap = await leerCapacidades();
   assert.strictEqual(cap["5493400000014"], undefined);
 });
+
+test("altaCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-altawarn");
+  // CAPACIDADES_PATH apunta a un directorio (no un archivo): fs.writeFile tira EISDIR,
+  // lo cual dispara el catch y produce el warning sin perder el cliente ya creado.
+  process.env.CAPACIDADES_PATH = nuevoTmpDir("cap-altawarn-dir");
+  const { altaCliente } = await import("../admin.js");
+  const { cargarClientePorUserId } = await import("../clientes.js");
+
+  const r = await altaCliente({ nombre: "Con Warning", waPhone: "5493400000015", sistemas: ["bunn"] });
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.userId);
+  assert.strictEqual(typeof r.warning, "string");
+  assert.ok(r.warning.length > 0);
+
+  // el cliente se creó igual, aunque capacidades.json no se pudo actualizar
+  const cliente = await cargarClientePorUserId(r.userId);
+  assert.strictEqual(cliente.waPhone, "5493400000015");
+});
+
+test("editarCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-editwarn");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-editwarn-${Date.now()}.json`);
+  const { altaCliente, editarCliente } = await import("../admin.js");
+
+  const alta = await altaCliente({ nombre: "Editable Warning", waPhone: "5493400000016", sistemas: ["bunn"] });
+
+  // ahora rompemos capacidades.json apuntándolo a un directorio antes de editar
+  process.env.CAPACIDADES_PATH = nuevoTmpDir("cap-editwarn-dir");
+
+  const r = await editarCliente(alta.userId, { sistemas: ["bunn", "redes"] });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(typeof r.warning, "string");
+  assert.ok(r.warning.length > 0);
+});
+
+test("bajaCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-bajawarn");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-bajawarn-${Date.now()}.json`);
+  const { altaCliente, bajaCliente } = await import("../admin.js");
+
+  const alta = await altaCliente({ nombre: "Para Borrar Warning", waPhone: "5493400000017", sistemas: ["bunn"] });
+
+  // ahora rompemos capacidades.json apuntándolo a un directorio antes de dar de baja
+  process.env.CAPACIDADES_PATH = nuevoTmpDir("cap-bajawarn-dir");
+
+  const r = await bajaCliente(alta.userId);
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.movidoA);
+  assert.ok(fssync.existsSync(r.movidoA));
+  assert.strictEqual(typeof r.warning, "string");
+  assert.ok(r.warning.length > 0);
+});
