@@ -65,6 +65,12 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
 async function checkSesion() {
   try {
     await api("/admin/api/me");
@@ -102,22 +108,27 @@ async function cargarClientes() {
   tbody.innerHTML = "";
   for (const c of lista) {
     const tr = document.createElement("tr");
-    const trialTxt = !c.trialEstado ? "—" : c.trialEstado.estado === "permanente" ? "permanente" : `${c.trialEstado.estado} (${c.trialEstado.dias}d)`;
+    const trialTxt = !c.trialEstado || c.trialEstado.dias == null ? (c.trialEstado ? c.trialEstado.estado : "—") : `${c.trialEstado.estado} (${c.trialEstado.dias}d)`;
     tr.innerHTML = `
-      <td>${c.nombre || "—"}${c.inconsistente ? ' <span class="warn">⚠</span>' : ""}</td>
-      <td>${c.waPhone}</td>
-      <td>${c.sistemas.map((s) => `<span class="pill">${s}</span>`).join("") || "—"}</td>
+      <td>${esc(c.nombre) || "—"}${c.inconsistente ? ' <span class="warn">⚠</span>' : ""}</td>
+      <td>${esc(c.waPhone)}</td>
+      <td>${c.sistemas.map((s) => `<span class="pill">${esc(s)}</span>`).join("") || "—"}</td>
       <td>${trialTxt}</td>
       <td>${c.cdConfigurado ? "sí" : "no"}</td>
-      <td class="row-actions">${c.userId ? `<button data-editar="${c.userId}" data-sistemas="${c.sistemas.join(",")}" data-trial="${c.trialUntil || ""}">Editar</button><button data-baja="${c.userId}">Baja</button>` : ""}</td>
+      <td class="row-actions">${c.userId ? `<button data-editar="${esc(c.userId)}" data-sistemas="${esc(c.sistemas.join(","))}" data-trial="${esc(c.trialUntil || "")}">Editar</button><button data-baja="${esc(c.userId)}">Baja</button>` : ""}</td>
     `;
     tbody.appendChild(tr);
   }
   tbody.querySelectorAll("[data-baja]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("¿Dar de baja este cliente? (queda respaldado, no se borra)")) return;
-      await api(`/admin/api/clientes/${encodeURIComponent(btn.dataset.baja)}`, { method: "DELETE" });
-      await cargarClientes();
+      try {
+        const r = await api(`/admin/api/clientes/${encodeURIComponent(btn.dataset.baja)}`, { method: "DELETE" });
+        if (r && r.warning) alert(r.warning);
+        await cargarClientes();
+      } catch (e) {
+        alert(e.message);
+      }
     });
   });
   tbody.querySelectorAll("[data-editar]").forEach((btn) => {
@@ -131,10 +142,11 @@ async function cargarClientes() {
       if (trialStr === null) return;
       const sistemas = sistemasStr.split(",").map((s) => s.trim()).filter(Boolean);
       try {
-        await api(`/admin/api/clientes/${encodeURIComponent(userId)}`, {
+        const r = await api(`/admin/api/clientes/${encodeURIComponent(userId)}`, {
           method: "PATCH",
           body: JSON.stringify({ sistemas, trialUntil: trialStr.trim() || null }),
         });
+        if (r && r.warning) alert(r.warning);
         await cargarClientes();
       } catch (e) {
         alert(e.message);
@@ -150,11 +162,12 @@ document.getElementById("altaBtn").addEventListener("click", async () => {
   const trialUntil = document.getElementById("altaTrial").value || null;
   document.getElementById("altaErr").textContent = "";
   try {
-    await api("/admin/api/clientes", { method: "POST", body: JSON.stringify({ nombre, waPhone, sistemas, trialUntil }) });
+    const r = await api("/admin/api/clientes", { method: "POST", body: JSON.stringify({ nombre, waPhone, sistemas, trialUntil }) });
     document.getElementById("altaNombre").value = "";
     document.getElementById("altaPhone").value = "";
     document.getElementById("altaTrial").value = "";
     document.querySelectorAll(".altaSistema").forEach((el) => (el.checked = false));
+    if (r && r.warning) document.getElementById("altaErr").textContent = r.warning;
     await cargarClientes();
   } catch (e) {
     document.getElementById("altaErr").textContent = e.message;

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import {
-  getClientIp, checkLoginRateLimit, recordFailedLogin, clearLoginAttempts,
+  getClientIp,
   parseCookies, readBody, sendJson,
 } from "./web.js";
 
@@ -39,6 +39,34 @@ export function checkAdminCredentials(user, password) {
   const cuenta = leerAdminCredentials().find((c) => c.user === user);
   if (!cuenta) return false;
   return verifyPassword(password, cuenta.passHash);
+}
+
+// ── Rate limiting propio del login admin (Map separado del de clientes en web.js,
+//    para que un login exitoso de cliente no resetee el contador de brute-force admin) ──
+const adminLoginAttempts = new Map();
+const ADMIN_MAX_LOGIN_ATTEMPTS = 6;
+const ADMIN_LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+export function checkAdminLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = adminLoginAttempts.get(ip);
+  if (!entry) return { blocked: false };
+  if (entry.blockedUntil > now) {
+    return { blocked: true, retryAfter: Math.ceil((entry.blockedUntil - now) / 60000) };
+  }
+  if (entry.blockedUntil > 0) adminLoginAttempts.delete(ip);
+  return { blocked: false };
+}
+
+export function recordAdminFailedLogin(ip) {
+  const entry = adminLoginAttempts.get(ip) || { count: 0, blockedUntil: 0 };
+  entry.count++;
+  if (entry.count >= ADMIN_MAX_LOGIN_ATTEMPTS) entry.blockedUntil = Date.now() + ADMIN_LOGIN_BLOCK_MS;
+  adminLoginAttempts.set(ip, entry);
+}
+
+export function clearAdminLoginAttempts(ip) {
+  adminLoginAttempts.delete(ip);
 }
 
 // ── Sesiones admin (en memoria, separadas de las sesiones de cliente) ──────
@@ -90,14 +118,16 @@ export async function leerCapacidades() {
 }
 
 export async function escribirCapacidades(reg) {
-  await fs.writeFile(capacidadesPath(), JSON.stringify(reg, null, 2));
+  const path = capacidadesPath();
+  await fs.writeFile(path + ".tmp", JSON.stringify(reg, null, 2));
+  await fs.rename(path + ".tmp", path);
 }
 
 // ── Estado de trial (cálculo de vigencia y días restantes) ───────────────────
 export function trialEstadoDe(trialUntil) {
   if (!trialUntil) return { estado: "permanente", dias: null };
   const t = Date.parse(trialUntil);
-  if (Number.isNaN(t)) return { estado: "permanente", dias: null };
+  if (Number.isNaN(t)) return { estado: "invalido", dias: null };
   const dias = Math.ceil((t - Date.now()) / 86400000);
   return { estado: dias < 0 ? "vencido" : "vigente", dias };
 }
@@ -112,17 +142,23 @@ export async function listarClientesCruzado() {
   const clientes = await listarTodosClientes();
   const capacidades = await leerCapacidades();
 
-  const porTelefono = new Map();
+  // Clave interna para el Map/Set de deduplicación: el waPhone normalizado, o una
+  // key sintética por userId cuando el cliente no tiene un waPhone normalizable
+  // (ej. creado Telegram-first). Esto evita que todos los "sin teléfono" colisionen
+  // entre sí bajo la misma key "" y se pisen en el Map.
+  const porClave = new Map();
   for (const c of clientes) {
     const tel = normalizeArgWa(c.waPhone);
-    if (tel) porTelefono.set(tel, c);
+    const clave = tel || `sin-telefono:${c.userId}`;
+    porClave.set(clave, c);
   }
 
-  const telefonos = new Set([...porTelefono.keys(), ...Object.keys(capacidades)]);
+  const claves = new Set([...porClave.keys(), ...Object.keys(capacidades)]);
   const resultado = [];
-  for (const tel of telefonos) {
-    const cliente = porTelefono.get(tel) || null;
-    const cap = capacidades[tel] || null;
+  for (const clave of claves) {
+    const cliente = porClave.get(clave) || null;
+    const cap = capacidades[clave] || null;
+    const tel = clave.startsWith("sin-telefono:") ? "" : clave;
     resultado.push({
       userId: cliente ? cliente.userId : null,
       nombre: (cliente && cliente.nombre) || (cap && cap.nombre) || null,
@@ -131,16 +167,31 @@ export async function listarClientesCruzado() {
       trialUntil: cliente ? (cliente.trialUntil ?? null) : null,
       trialEstado: cliente ? trialEstadoDe(cliente.trialUntil) : null,
       cdConfigurado: !!(cliente && cliente.cdUser),
-      inconsistente: !cliente || !cap,
+      inconsistente: !cliente || !cap || !tel,
     });
   }
   return resultado;
 }
 
+// trialUntil debe ser YYYY-MM-DD o vacío/null. Cualquier otro formato (ej. DD/MM/AAAA)
+// falla abierto en trialEstadoDe/trialVencido tratando el cliente como "permanente",
+// asi que lo rechazamos acá en el punto de entrada del panel.
+const TRIAL_UNTIL_RE = /^\d{4}-\d{2}-\d{2}$/;
+function validarTrialUntil(trialUntil) {
+  if (trialUntil === undefined || trialUntil === null || trialUntil === "") return;
+  if (!TRIAL_UNTIL_RE.test(trialUntil)) {
+    throw new AdminError("trialUntil debe ser YYYY-MM-DD o vacio", "bad_request");
+  }
+}
+
 // ── Alta, edición y baja de cliente (escriben en clientes/ y capacidades.json) ─
 export async function altaCliente({ nombre, waPhone, sistemas, trialUntil }) {
   if (!nombre || !waPhone) throw new AdminError("Falta nombre o waPhone", "bad_request");
+  validarTrialUntil(trialUntil);
   const telNorm = normalizeArgWa(waPhone);
+  if (!telNorm || telNorm.length < 10) {
+    throw new AdminError("waPhone invalido", "bad_request");
+  }
   const existentes = await listarTodosClientes();
   if (existentes.some((c) => normalizeArgWa(c.waPhone) === telNorm)) {
     throw new AdminError("Ese número ya pertenece a otro cliente", "duplicado");
@@ -160,6 +211,7 @@ export async function altaCliente({ nombre, waPhone, sistemas, trialUntil }) {
 }
 
 export async function editarCliente(userId, { nombre, sistemas, trialUntil } = {}) {
+  validarTrialUntil(trialUntil);
   const cliente = await cargarClientePorUserId(userId);
   if (!cliente) throw new AdminError("Cliente no encontrado", "not_found");
 
@@ -230,7 +282,7 @@ export async function handleAdmin(req, res, pathname, method) {
   // POST /admin/api/login
   if (pathname === "/admin/api/login" && method === "POST") {
     const ip = getClientIp(req);
-    const rate = checkLoginRateLimit(ip);
+    const rate = checkAdminLoginRateLimit(ip);
     if (rate.blocked) { sendJson(res, { error: `Demasiados intentos. Probá en ${rate.retryAfter} minutos.` }, 429); return; }
     const body = await readBody(req);
     let user, password;
@@ -241,11 +293,11 @@ export async function handleAdmin(req, res, pathname, method) {
       return;
     }
     if (!user || !password || !checkAdminCredentials(user, password)) {
-      recordFailedLogin(ip);
+      recordAdminFailedLogin(ip);
       sendJson(res, { error: "Usuario o contraseña incorrectos" }, 401);
       return;
     }
-    clearLoginAttempts(ip);
+    clearAdminLoginAttempts(ip);
     const sid = createAdminSession(user);
     res.writeHead(200, {
       "Content-Type": "application/json",
