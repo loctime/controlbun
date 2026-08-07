@@ -8,9 +8,31 @@
 
 **Tech Stack:** Node.js ESM, `node:http` nativo (sin Express), `node:crypto` (scrypt) para passwords, `node:test` para tests. Spec completo: `/opt/controlbun/docs/2026-08-07-panel-admin-design.md`.
 
+## Nota de ejecución (agregada al arrancar subagent-driven-development)
+
+El plan se escribió asumiendo edición directa por SSH contra `/opt/controlbun`
+en el VPS (no había checkout local todavía). Desde ahora sí existe un clone
+local en `C:\Users\User\Desktop\Proyectos\controlbun`, con un worktree por
+tarea. **Tasks 1-7 se implementan y testean en el worktree local, en plano
+(sin el wrapper `ssh ... "..."`)** — cada `Run:` de esas tasks debe
+ejecutarse tal cual pero SIN el prefijo SSH, directo en el directorio de
+trabajo del worktree. Los `git commit`/`push` de esas tasks van contra el
+remoto `origin` (`https://github.com/loctime/controlbun.git`, credencial ya
+sembrada en Windows Credential Manager) usando `user.name=loctime` /
+`user.email=diegobertosi@gmail.com` (ya configurados en el repo, no hace
+falta pasar `GIT_AUTHOR_NAME`/`GIT_SSH_COMMAND` como dice más abajo — eso
+aplica solo si en algún momento se opera directo sobre el VPS).
+
+**Task 8 sigue siendo 100% VPS por SSH** (ahí sí aplican los comandos con el
+wrapper `ssh ... "..."` tal como están escritos), pero antes de generar los
+hashes de contraseña agrega un paso 0: mergear esta rama a `master` local,
+pushear a GitHub, y en el VPS hacer `git pull` sobre `/opt/controlbun` para
+traer el código nuevo antes de reiniciar el proceso.
+
 ## Global Constraints
 
-- **No hay checkout local — todo se hace por SSH contra el VPS.** Conexión:
+- **Solo aplica a Task 8** (deploy final en el VPS) — todo lo anterior (Tasks
+  1-7) es un checkout local normal, sin SSH. Conexión para Task 8:
   `ssh -p 22022 -i ~/.ssh/vps_contabo root@5.189.136.177 "<comando>"`.
 - Los archivos de `/opt/controlbun` son del user `claude`. Escribir como
   **root** (bypassa permisos), y `chown claude:claude <archivo>` en cada

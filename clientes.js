@@ -62,6 +62,23 @@ async function escribir(cliente) {
   return cliente;
 }
 
+function timestampCompacto() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+// Baja de cliente: mueve el archivo a .deleted/ con timestamp, nunca lo borra en seco.
+export async function eliminarCliente(userId) {
+  const origen = path.join(dir(), `${userId}.json`);
+  if (!fssync.existsSync(origen)) return null;
+  const deletedDir = path.join(dir(), ".deleted");
+  await fs.mkdir(deletedDir, { recursive: true });
+  const destino = path.join(deletedDir, `${userId}.json.bak-${timestampCompacto()}`);
+  await fs.rename(origen, destino);
+  return { userId, movidoA: destino };
+}
+
 export async function cargarCliente(telegramChatId) {
   try {
     const archivos = await fs.readdir(dir());

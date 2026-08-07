@@ -10,7 +10,7 @@ process.env.CLIENTES_DIR = TMP;
 const {
   slugify, genLinkCode, normalizeArgWa,
   cargarCliente, cargarClientePorUserId, registrarCliente, crearClienteWA, actualizarCliente,
-  cargarClientePorLinkCode, vincularTelegram, setWaPhone, setCdCreds,
+  cargarClientePorLinkCode, vincularTelegram, setWaPhone, setCdCreds, eliminarCliente,
 } = await import("../clientes.js");
 
 test("slugify", () => {
@@ -128,4 +128,19 @@ test("setCdCreds guarda nombreEmpresa cuando se provee, lo omite si no", async (
 
 test("setCdCreds en cliente inexistente → null", async () => {
   assert.strictEqual(await setCdCreds("no-existe", { cdUser: "x", cdPass: "y" }), null);
+});
+
+test("eliminarCliente: mueve el archivo a .deleted con timestamp, no lo borra", async () => {
+  const cliente = await crearClienteWA("Cliente De Prueba", "5493400000000");
+  const resultado = await eliminarCliente(cliente.userId);
+  assert.strictEqual(resultado.userId, cliente.userId);
+  assert.ok(fs.existsSync(resultado.movidoA), "el archivo movido debe existir");
+  assert.ok(resultado.movidoA.includes(path.join(TMP, ".deleted")), "debe estar dentro de .deleted");
+  assert.ok(/\.json\.bak-\d{8}-\d{6}$/.test(resultado.movidoA), "debe tener el sufijo de timestamp");
+  assert.strictEqual(fs.existsSync(path.join(TMP, `${cliente.userId}.json`)), false, "el original ya no debe existir en clientes/");
+});
+
+test("eliminarCliente: userId inexistente -> null, no tira", async () => {
+  const resultado = await eliminarCliente("no-existe-este-userid");
+  assert.strictEqual(resultado, null);
 });

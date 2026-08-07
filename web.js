@@ -8,6 +8,7 @@ import { resolverUserId } from "./clientes.js";
 import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 import { cdObtenerSesionActiva, cdLeerTiposRequerimientos } from "./cd.js";
+import { handleAdmin } from "./admin.js";
 
 async function buscarClientesPorCredenciales(cdUser, cdPass) {
   const matches = [];
@@ -34,7 +35,7 @@ const loginAttempts = new Map();
 const MAX_LOGIN_ATTEMPTS = 6;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
-function getClientIp(req) {
+export function getClientIp(req) {
   return (
     req.headers["cf-connecting-ip"] ||
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
@@ -42,7 +43,7 @@ function getClientIp(req) {
   );
 }
 
-function checkLoginRateLimit(ip) {
+export function checkLoginRateLimit(ip) {
   const now = Date.now();
   const entry = loginAttempts.get(ip);
   if (!entry) return { blocked: false };
@@ -53,14 +54,14 @@ function checkLoginRateLimit(ip) {
   return { blocked: false };
 }
 
-function recordFailedLogin(ip) {
+export function recordFailedLogin(ip) {
   const entry = loginAttempts.get(ip) || { count: 0, blockedUntil: 0 };
   entry.count++;
   if (entry.count >= MAX_LOGIN_ATTEMPTS) entry.blockedUntil = Date.now() + LOGIN_BLOCK_MS;
   loginAttempts.set(ip, entry);
 }
 
-function clearLoginAttempts(ip) {
+export function clearLoginAttempts(ip) {
   loginAttempts.delete(ip);
 }
 
@@ -75,7 +76,7 @@ export function generarTokenWeb(chatId) {
   return token;
 }
 
-function parseCookies(header = "") {
+export function parseCookies(header = "") {
   return Object.fromEntries(
     header.split(";").flatMap((c) => {
       const [k, ...v] = c.trim().split("=");
@@ -96,13 +97,13 @@ function getChatId(req) {
   return session.chatId;
 }
 
-async function readBody(req) {
+export async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   return Buffer.concat(chunks);
 }
 
-function sendJson(res, data, status = 200) {
+export function sendJson(res, data, status = 200) {
   const body = JSON.stringify(data);
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(body);
@@ -138,6 +139,12 @@ async function handle(req, res) {
       "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`,
     });
     res.end();
+    return;
+  }
+
+  // ── Panel admin (separado del panel de mapeos de clientes) ─────────────────
+  if (p === "/admin" || p.startsWith("/admin/")) {
+    await handleAdmin(req, res, p, method);
     return;
   }
 
