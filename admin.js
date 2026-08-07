@@ -233,7 +233,13 @@ export async function handleAdmin(req, res, pathname, method) {
     const rate = checkLoginRateLimit(ip);
     if (rate.blocked) { sendJson(res, { error: `Demasiados intentos. Probá en ${rate.retryAfter} minutos.` }, 429); return; }
     const body = await readBody(req);
-    const { user, password } = JSON.parse(body.toString("utf8") || "{}");
+    let user, password;
+    try {
+      ({ user, password } = JSON.parse(body.toString("utf8") || "{}") || {});
+    } catch {
+      sendJson(res, { error: "Body inválido" }, 400);
+      return;
+    }
     if (!user || !password || !checkAdminCredentials(user, password)) {
       recordFailedLogin(ip);
       sendJson(res, { error: "Usuario o contraseña incorrectos" }, 401);
@@ -272,7 +278,11 @@ export async function handleAdmin(req, res, pathname, method) {
 
   // GET /admin/api/clientes
   if (pathname === "/admin/api/clientes" && method === "GET") {
-    sendJson(res, await listarClientesCruzado());
+    try {
+      sendJson(res, await listarClientesCruzado());
+    } catch (e) {
+      sendJson(res, { error: e.message }, 500);
+    }
     return;
   }
 
