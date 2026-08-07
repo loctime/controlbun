@@ -8,6 +8,7 @@ import { resolverUserId } from "./clientes.js";
 import { cargarCliente } from "./clientes.js";
 import { pdfAImagenes } from "./pdf.js";
 import { cdObtenerSesionActiva, cdLeerTiposRequerimientos } from "./cd.js";
+import { handleAdmin } from "./admin.js";
 
 async function buscarClientesPorCredenciales(cdUser, cdPass) {
   const matches = [];
@@ -138,6 +139,12 @@ async function handle(req, res) {
       "Set-Cookie": `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`,
     });
     res.end();
+    return;
+  }
+
+  // ── Panel admin (separado del panel de mapeos de clientes) ─────────────────
+  if (p === "/admin" || p.startsWith("/admin/")) {
+    await handleAdmin(req, res, p, method);
     return;
   }
 

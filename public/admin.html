@@ -1,0 +1,167 @@
+<!-- /opt/controlbun/public/admin.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Admin — ControlBun</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; background: #EDE8DF; color: #1C2228; padding: 24px; }
+  .card { background: #FAF8F4; border: 1px solid #D8D2C6; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto 16px; }
+  h1 { font-size: 22px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; margin: 8px 0 4px; }
+  input, select { width: 100%; padding: 8px; border: 1px solid #D8D2C6; border-radius: 6px; font-size: 14px; }
+  button { margin-top: 12px; padding: 8px 16px; border: none; border-radius: 6px; background: #1C2228; color: #fff; cursor: pointer; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #EDE8DF; }
+  .warn { color: #B24; font-weight: 600; }
+  .err { color: #B24; font-size: 13px; margin-top: 8px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #EDE8DF; font-size: 11px; margin-right: 4px; }
+  .row-actions button { margin: 0 4px 0 0; padding: 4px 10px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="login" class="card">
+  <h1>Panel Admin</h1>
+  <label>Usuario</label>
+  <input id="loginUser" type="text" autocomplete="username">
+  <label>Contraseña</label>
+  <input id="loginPass" type="password" autocomplete="current-password">
+  <button id="loginBtn">Entrar</button>
+  <div id="loginErr" class="err"></div>
+</div>
+
+<div id="panel" class="card" style="display:none">
+  <h1>Clientes <button id="logoutBtn" style="float:right;background:#888">Salir</button></h1>
+  <table>
+    <thead><tr><th>Nombre</th><th>WhatsApp</th><th>Sistemas</th><th>Trial</th><th>CD</th><th></th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div id="altaCard" class="card" style="display:none">
+  <h1>Dar de alta</h1>
+  <label>Nombre</label>
+  <input id="altaNombre" type="text">
+  <label>WhatsApp (con código de país, ej. 5493364524758)</label>
+  <input id="altaPhone" type="text">
+  <label>Sistemas</label>
+  <label><input type="checkbox" value="bunn" class="altaSistema"> bunn</label>
+  <label><input type="checkbox" value="redes" class="altaSistema"> redes</label>
+  <label><input type="checkbox" value="entrevista" class="altaSistema"> entrevista</label>
+  <label>Trial hasta (vacío = permanente)</label>
+  <input id="altaTrial" type="date">
+  <button id="altaBtn">Crear cliente</button>
+  <div id="altaErr" class="err"></div>
+</div>
+
+<script>
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  return data;
+}
+
+async function checkSesion() {
+  try {
+    await api("/admin/api/me");
+    document.getElementById("login").style.display = "none";
+    document.getElementById("panel").style.display = "block";
+    document.getElementById("altaCard").style.display = "block";
+    await cargarClientes();
+  } catch {
+    document.getElementById("login").style.display = "block";
+    document.getElementById("panel").style.display = "none";
+    document.getElementById("altaCard").style.display = "none";
+  }
+}
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const user = document.getElementById("loginUser").value.trim();
+  const password = document.getElementById("loginPass").value;
+  document.getElementById("loginErr").textContent = "";
+  try {
+    await api("/admin/api/login", { method: "POST", body: JSON.stringify({ user, password }) });
+    await checkSesion();
+  } catch (e) {
+    document.getElementById("loginErr").textContent = e.message;
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await api("/admin/api/logout", { method: "POST" });
+  await checkSesion();
+});
+
+async function cargarClientes() {
+  const lista = await api("/admin/api/clientes");
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  for (const c of lista) {
+    const tr = document.createElement("tr");
+    const trialTxt = !c.trialEstado ? "—" : c.trialEstado.estado === "permanente" ? "permanente" : `${c.trialEstado.estado} (${c.trialEstado.dias}d)`;
+    tr.innerHTML = `
+      <td>${c.nombre || "—"}${c.inconsistente ? ' <span class="warn">⚠</span>' : ""}</td>
+      <td>${c.waPhone}</td>
+      <td>${c.sistemas.map((s) => `<span class="pill">${s}</span>`).join("") || "—"}</td>
+      <td>${trialTxt}</td>
+      <td>${c.cdConfigurado ? "sí" : "no"}</td>
+      <td class="row-actions">${c.userId ? `<button data-editar="${c.userId}" data-sistemas="${c.sistemas.join(",")}" data-trial="${c.trialUntil || ""}">Editar</button><button data-baja="${c.userId}">Baja</button>` : ""}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll("[data-baja]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Dar de baja este cliente? (queda respaldado, no se borra)")) return;
+      await api(`/admin/api/clientes/${encodeURIComponent(btn.dataset.baja)}`, { method: "DELETE" });
+      await cargarClientes();
+    });
+  });
+  tbody.querySelectorAll("[data-editar]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const userId = btn.dataset.editar;
+      const sistemasActuales = btn.dataset.sistemas;
+      const sistemasStr = prompt(`Sistemas (separados por coma): bunn, redes, entrevista`, sistemasActuales);
+      if (sistemasStr === null) return;
+      const trialActual = btn.dataset.trial;
+      const trialStr = prompt(`Trial hasta (YYYY-MM-DD, vacío = permanente)`, trialActual);
+      if (trialStr === null) return;
+      const sistemas = sistemasStr.split(",").map((s) => s.trim()).filter(Boolean);
+      try {
+        await api(`/admin/api/clientes/${encodeURIComponent(userId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sistemas, trialUntil: trialStr.trim() || null }),
+        });
+        await cargarClientes();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+}
+
+document.getElementById("altaBtn").addEventListener("click", async () => {
+  const nombre = document.getElementById("altaNombre").value.trim();
+  const waPhone = document.getElementById("altaPhone").value.trim();
+  const sistemas = [...document.querySelectorAll(".altaSistema:checked")].map((el) => el.value);
+  const trialUntil = document.getElementById("altaTrial").value || null;
+  document.getElementById("altaErr").textContent = "";
+  try {
+    await api("/admin/api/clientes", { method: "POST", body: JSON.stringify({ nombre, waPhone, sistemas, trialUntil }) });
+    document.getElementById("altaNombre").value = "";
+    document.getElementById("altaPhone").value = "";
+    document.getElementById("altaTrial").value = "";
+    document.querySelectorAll(".altaSistema").forEach((el) => (el.checked = false));
+    await cargarClientes();
+  } catch (e) {
+    document.getElementById("altaErr").textContent = e.message;
+  }
+});
+
+checkSesion();
+</script>
+</body>
+</html>
