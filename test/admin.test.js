@@ -147,3 +147,30 @@ test("listarClientesCruzado: cruza cliente+capacidades por telefono, detecta inc
   assert.strictEqual(soloCapacidades.userId, null);
   assert.strictEqual(soloCapacidades.nombre, "Solo En Capacidades");
 });
+
+test("listarClientesCruzado: cdConfigurado es true cuando cliente tiene cdUser", async () => {
+  const clientesTmp = path.join(os.tmpdir(), `clientes-cdconf-${Date.now()}`);
+  fssync.mkdirSync(clientesTmp);
+  process.env.CLIENTES_DIR = clientesTmp;
+  const capTmp = path.join(os.tmpdir(), `cap-cdconf-${Date.now()}.json`);
+  process.env.CAPACIDADES_PATH = capTmp;
+
+  const { setCdCreds } = await import("../clientes.js");
+
+  // Crear cliente
+  const cliente = await crearClienteWA("Diego Con CD", "5493364524759");
+  // Setear cdUser
+  await setCdCreds(cliente.userId, { cdUser: "diego@controlapps.ar", cdPass: "secret" });
+
+  // Escribir capacidades para este cliente
+  await escribirCapacidades({
+    "5493364524759": { nombre: "Diego Con CD", sistemas: ["bunn", "redes"] },
+  });
+
+  const lista = await listarClientesCruzado();
+  const conCD = lista.find((c) => c.waPhone === "5493364524759");
+
+  assert.strictEqual(conCD.cdConfigurado, true);
+  assert.strictEqual(conCD.inconsistente, false);
+  assert.deepStrictEqual(conCD.sistemas, ["bunn", "redes"]);
+});
