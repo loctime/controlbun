@@ -321,3 +321,27 @@ test("bajaCliente: si falla escribir capacidades.json, devuelve warning en vez d
   assert.strictEqual(typeof r.warning, "string");
   assert.ok(r.warning.length > 0);
 });
+
+test("editarCliente: cliente sin waPhone no corrompe capacidades.json (devuelve warning)", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-editnowap");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-editnowap-${Date.now()}.json`);
+  const { editarCliente, leerCapacidades } = await import("../admin.js");
+  const { registrarCliente } = await import("../clientes.js");
+
+  // Crear cliente SIN waPhone (via Telegram, sin teléfono)
+  const cliente = await registrarCliente("999999999", "Cliente Sin Tel");
+
+  // Intentar editarlo asignándole sistemas
+  const r = await editarCliente(cliente.userId, { sistemas: ["bunn"] });
+
+  // Debe devolver ok:true pero con warning
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(typeof r.warning, "string");
+  assert.ok(r.warning.includes("sin waPhone"), "Warning debe mencionar falta de waPhone");
+
+  // Verificar que capacidades.json NO tiene una entrada con key ""
+  const cap = await leerCapacidades();
+  assert.strictEqual(cap[""], undefined, "No debe haber entrada con key vacía en capacidades.json");
+  // Verificar que capacidades está vacío (no debe haber ninguna otra entrada)
+  assert.deepStrictEqual(cap, {}, "capacidades.json debe estar vacío, sin entradas corruptas");
+});

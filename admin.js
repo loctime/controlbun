@@ -222,6 +222,9 @@ export async function editarCliente(userId, { nombre, sistemas, trialUntil } = {
 
   if (sistemas !== undefined) {
     const telNorm = normalizeArgWa(cliente.waPhone);
+    if (!telNorm) {
+      return { ok: true, warning: "Cliente sin waPhone: no se pueden asignar sistemas" };
+    }
     const sistemasValidos = sistemas.filter((s) => SISTEMAS_VALIDOS.includes(s));
     try {
       const cap = await leerCapacidades();
