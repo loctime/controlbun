@@ -99,7 +99,10 @@ export function trialEstadoDe(trialUntil) {
 }
 
 // ── Listado cruzado (clientes + capacidades) ───────────────────────────────
-import { listarTodosClientes, normalizeArgWa } from "./clientes.js";
+import {
+  listarTodosClientes, normalizeArgWa,
+  crearClienteWA, actualizarClientePorUserId, cargarClientePorUserId, eliminarCliente,
+} from "./clientes.js";
 
 export async function listarClientesCruzado() {
   const clientes = await listarTodosClientes();
@@ -128,4 +131,67 @@ export async function listarClientesCruzado() {
     });
   }
   return resultado;
+}
+
+// ── Alta, edición y baja de cliente (escriben en clientes/ y capacidades.json) ─
+export async function altaCliente({ nombre, waPhone, sistemas, trialUntil }) {
+  if (!nombre || !waPhone) throw new AdminError("Falta nombre o waPhone", "bad_request");
+  const telNorm = normalizeArgWa(waPhone);
+  const existentes = await listarTodosClientes();
+  if (existentes.some((c) => normalizeArgWa(c.waPhone) === telNorm)) {
+    throw new AdminError("Ese número ya pertenece a otro cliente", "duplicado");
+  }
+  const sistemasValidos = (sistemas || []).filter((s) => SISTEMAS_VALIDOS.includes(s));
+  const cliente = await crearClienteWA(nombre, waPhone);
+  if (trialUntil) await actualizarClientePorUserId(cliente.userId, { trialUntil });
+
+  try {
+    const cap = await leerCapacidades();
+    cap[telNorm] = { nombre, sistemas: sistemasValidos };
+    await escribirCapacidades(cap);
+  } catch (e) {
+    return { ok: true, userId: cliente.userId, warning: `Cliente creado pero no se pudo actualizar capacidades.json: ${e.message}` };
+  }
+  return { ok: true, userId: cliente.userId };
+}
+
+export async function editarCliente(userId, { nombre, sistemas, trialUntil } = {}) {
+  const cliente = await cargarClientePorUserId(userId);
+  if (!cliente) throw new AdminError("Cliente no encontrado", "not_found");
+
+  const patch = {};
+  if (nombre !== undefined) patch.nombre = nombre;
+  if (trialUntil !== undefined) patch.trialUntil = trialUntil;
+  if (Object.keys(patch).length) await actualizarClientePorUserId(userId, patch);
+
+  if (sistemas !== undefined) {
+    const telNorm = normalizeArgWa(cliente.waPhone);
+    const sistemasValidos = sistemas.filter((s) => SISTEMAS_VALIDOS.includes(s));
+    try {
+      const cap = await leerCapacidades();
+      cap[telNorm] = { nombre: nombre || cliente.nombre, sistemas: sistemasValidos };
+      await escribirCapacidades(cap);
+    } catch (e) {
+      return { ok: true, warning: `Cliente actualizado pero no se pudo actualizar capacidades.json: ${e.message}` };
+    }
+  }
+  return { ok: true };
+}
+
+export async function bajaCliente(userId) {
+  const cliente = await cargarClientePorUserId(userId);
+  if (!cliente) throw new AdminError("Cliente no encontrado", "not_found");
+  const telNorm = normalizeArgWa(cliente.waPhone);
+  const movido = await eliminarCliente(userId);
+
+  try {
+    const cap = await leerCapacidades();
+    if (telNorm && cap[telNorm]) {
+      delete cap[telNorm];
+      await escribirCapacidades(cap);
+    }
+  } catch (e) {
+    return { ok: true, movidoA: movido.movidoA, warning: `Cliente dado de baja pero no se pudo limpiar capacidades.json: ${e.message}` };
+  }
+  return { ok: true, movidoA: movido.movidoA };
 }

@@ -174,3 +174,89 @@ test("listarClientesCruzado: cdConfigurado es true cuando cliente tiene cdUser",
   assert.strictEqual(conCD.inconsistente, false);
   assert.deepStrictEqual(conCD.sistemas, ["bunn", "redes"]);
 });
+
+// ── Tests Task 5: alta, edicion y baja de cliente ───────────────────────────
+function nuevoTmpDir(prefix) {
+  const d = path.join(os.tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  fssync.mkdirSync(d);
+  return d;
+}
+
+test("altaCliente: crea en clientes/ y en capacidades.json", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-alta");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-alta-${Date.now()}.json`);
+  const { altaCliente, leerCapacidades } = await import("../admin.js");
+  const { cargarClientePorUserId } = await import("../clientes.js");
+
+  const r = await altaCliente({ nombre: "Cliente Nuevo", waPhone: "5493400000010", sistemas: ["bunn"], trialUntil: "2026-09-01" });
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.userId);
+
+  const cliente = await cargarClientePorUserId(r.userId);
+  assert.strictEqual(cliente.waPhone, "5493400000010");
+  assert.strictEqual(cliente.trialUntil, "2026-09-01");
+
+  const cap = await leerCapacidades();
+  assert.deepStrictEqual(cap["5493400000010"], { nombre: "Cliente Nuevo", sistemas: ["bunn"] });
+});
+
+test("altaCliente: waPhone duplicado -> AdminError codigo duplicado", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-dup");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-dup-${Date.now()}.json`);
+  const { altaCliente } = await import("../admin.js");
+
+  await altaCliente({ nombre: "Primero", waPhone: "5493400000011", sistemas: ["bunn"] });
+  await assert.rejects(
+    () => altaCliente({ nombre: "Segundo", waPhone: "5493400000011", sistemas: ["bunn"] }),
+    (e) => e.code === "duplicado"
+  );
+});
+
+test("altaCliente: filtra sistemas invalidos", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-sisval");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-sisval-${Date.now()}.json`);
+  const { altaCliente, leerCapacidades } = await import("../admin.js");
+
+  await altaCliente({ nombre: "X", waPhone: "5493400000012", sistemas: ["bunn", "sistema-inventado"] });
+  const cap = await leerCapacidades();
+  assert.deepStrictEqual(cap["5493400000012"].sistemas, ["bunn"]);
+});
+
+test("editarCliente: cambia sistemas y trial", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-edit");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-edit-${Date.now()}.json`);
+  const { altaCliente, editarCliente, leerCapacidades } = await import("../admin.js");
+  const { cargarClientePorUserId } = await import("../clientes.js");
+
+  const alta = await altaCliente({ nombre: "Editable", waPhone: "5493400000013", sistemas: ["bunn"] });
+  await editarCliente(alta.userId, { sistemas: ["bunn", "redes"], trialUntil: "2026-10-01" });
+
+  const cliente = await cargarClientePorUserId(alta.userId);
+  assert.strictEqual(cliente.trialUntil, "2026-10-01");
+  const cap = await leerCapacidades();
+  assert.deepStrictEqual(cap["5493400000013"].sistemas, ["bunn", "redes"]);
+});
+
+test("editarCliente: userId inexistente -> AdminError not_found", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-editnf");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-editnf-${Date.now()}.json`);
+  const { editarCliente } = await import("../admin.js");
+  await assert.rejects(
+    () => editarCliente("no-existe", { sistemas: ["bunn"] }),
+    (e) => e.code === "not_found"
+  );
+});
+
+test("bajaCliente: mueve a .deleted y saca la entrada de capacidades.json", async () => {
+  process.env.CLIENTES_DIR = nuevoTmpDir("clientes-baja");
+  process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-baja-${Date.now()}.json`);
+  const { altaCliente, bajaCliente, leerCapacidades } = await import("../admin.js");
+
+  const alta = await altaCliente({ nombre: "Para Borrar", waPhone: "5493400000014", sistemas: ["bunn"] });
+  const r = await bajaCliente(alta.userId);
+  assert.strictEqual(r.ok, true);
+  assert.ok(fssync.existsSync(r.movidoA));
+
+  const cap = await leerCapacidades();
+  assert.strictEqual(cap["5493400000014"], undefined);
+});
