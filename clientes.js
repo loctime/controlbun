@@ -45,6 +45,7 @@ function clienteBase(userId, nombre, extra) {
     waPhone: null, telegramChatId: null, linkCode: null,
     cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10,
     trialUntil: null, avisoTrialCliente: false,
+    bienvenidaEnviada: false,
     ...extra,
   };
 }

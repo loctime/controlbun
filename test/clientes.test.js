@@ -35,6 +35,7 @@ test("crearClienteWA: WA-first, sin telegram, con linkCode", async () => {
   assert.strictEqual(c.waPhone, "5493364345081");
   assert.strictEqual(c.telegramChatId, null);
   assert.match(c.linkCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+  assert.strictEqual(c.bienvenidaEnviada, false);
   // persiste
   assert.ok(fs.existsSync(path.join(TMP, "miguel-rojas.json")));
 });

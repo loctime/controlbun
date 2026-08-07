@@ -1,6 +1,6 @@
 import "dotenv/config";
 import http from "http";
-import { cargarClientePorUserId, setCdCreds } from "./clientes.js";
+import { cargarClientePorUserId, setCdCreds, actualizarClientePorUserId } from "./clientes.js";
 import { readCache, writeCache, invalidateCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
 import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion, cdDetectarNombreEmpresa, cdGrabarParteMensual } from "./cd.js";
 
@@ -103,6 +103,20 @@ async function configurarCuenta(chatId, cdUser, cdPass) {
   return { ok: true, nombreEmpresa: nombreEmpresa || null };
 }
 
+// Chequea si el cliente ya configuro su cuenta CD, para el onboarding automatico
+// por WhatsApp. Efecto secundario: si nunca se le mando la bienvenida, la marca
+// (para que la proxima vez sea el mensaje corto de "retomemos", no el largo inicial).
+async function chequearOnboarding(chatId) {
+  const cliente = await cargarClientePorUserId(chatId);
+  if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
+  const cdConfigurado = !!cliente.cdUser;
+  const primeraVez = !cliente.bienvenidaEnviada;
+  if (!cdConfigurado && primeraVez) {
+    await actualizarClientePorUserId(chatId, { bienvenidaEnviada: true });
+  }
+  return { ok: true, cdConfigurado, primeraVez, nombre: cliente.nombre || null };
+}
+
 // Graba el parte mensual on-demand (lo mismo que /partemes en Telegram). Muta CD.
 async function grabarParteMensual(chatId) {
   const cliente = await cargarClientePorUserId(chatId);
@@ -158,6 +172,14 @@ const server = http.createServer(async (req, res) => {
       if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
       if (!body.cdUser || !body.cdPass) return sendJSON(res, 400, { ok: false, error: "faltan_credenciales" });
       const result = await configurarCuenta(String(chatId), String(body.cdUser), String(body.cdPass));
+      return sendJSON(res, 200, result);
+    }
+    if (req.method === "POST" && url.pathname === "/internal/onboarding-check") {
+      let body;
+      try { body = await readBody(req); } catch { return sendJSON(res, 400, { ok: false, error: "bad_json" }); }
+      const chatId = body.chatId;
+      if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
+      const result = await chequearOnboarding(String(chatId));
       return sendJSON(res, 200, result);
     }
     if (req.method === "POST" && url.pathname === "/internal/parte-mensual") {
