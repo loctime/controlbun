@@ -14,7 +14,7 @@ try {
   if (rt.aiProvider) aiProvider = rt.aiProvider;
 } catch {}
 
-const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropicClient = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
 const _label = () => aiProvider === "ollama" ? `Ollama (${OLLAMA_MODEL})`
   : aiProvider === "gemini" ? `Gemini (${GEMINI_MODEL})`
@@ -63,6 +63,7 @@ async function llamarClaude(body) {
   if (aiProvider === "gemini") {
     return _llamarOpenAICompat({ baseUrl: GEMINI_BASE_URL, apiKey: GEMINI_API_KEY, model: GEMINI_MODEL, messages, max_tokens: body.max_tokens });
   }
+  if (!anthropicClient) throw new Error("Proveedor Anthropic deshabilitado (sin ANTHROPIC_API_KEY). Use AI_PROVIDER=gemini.");
   return await anthropicClient.messages.create(body);
 }
 

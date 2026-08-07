@@ -2,7 +2,7 @@ import "dotenv/config";
 import http from "http";
 import { cargarClientePorUserId, setCdCreds } from "./clientes.js";
 import { readCache, writeCache, invalidateCache, TTL_VENCIMIENTOS, TTL_PENDIENTES } from "./cache.js";
-import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion, cdDetectarNombreEmpresa } from "./cd.js";
+import { cdObtenerSesionActiva, cdLeerVencimientos, cdLeerRequerimientos, cdInvalidarSesion, cdDetectarNombreEmpresa, cdGrabarParteMensual } from "./cd.js";
 
 const PORT = Number(process.env.INTERNAL_API_PORT) || 3110;
 const TOKEN = process.env.INTERNAL_API_TOKEN || "";
@@ -103,6 +103,23 @@ async function configurarCuenta(chatId, cdUser, cdPass) {
   return { ok: true, nombreEmpresa: nombreEmpresa || null };
 }
 
+// Graba el parte mensual on-demand (lo mismo que /partemes en Telegram). Muta CD.
+async function grabarParteMensual(chatId) {
+  const cliente = await cargarClientePorUserId(chatId);
+  if (!cliente) return { ok: false, error: "cliente_no_encontrado" };
+  if (!cliente.cdUser || !cliente.cdPass) return { ok: false, error: "sin_credenciales" };
+  const ses = await cdObtenerSesionActiva(chatId, cliente.cdUser, cliente.cdPass);
+  if (!ses.ok) { cdInvalidarSesion(chatId); return { ok: false, error: "login_cd", motivo: ses.motivo }; }
+  try {
+    const { personal, maquinas } = await cdGrabarParteMensual(ses.page);
+    invalidateCache(chatId); // el parte muta vencimientos/pendientes
+    return { ok: true, personal, maquinas };
+  } catch (e) {
+    cdInvalidarSesion(chatId);
+    return { ok: false, error: "scrape_error", motivo: e.message };
+  }
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -141,6 +158,14 @@ const server = http.createServer(async (req, res) => {
       if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
       if (!body.cdUser || !body.cdPass) return sendJSON(res, 400, { ok: false, error: "faltan_credenciales" });
       const result = await configurarCuenta(String(chatId), String(body.cdUser), String(body.cdPass));
+      return sendJSON(res, 200, result);
+    }
+    if (req.method === "POST" && url.pathname === "/internal/parte-mensual") {
+      let body;
+      try { body = await readBody(req); } catch { return sendJSON(res, 400, { ok: false, error: "bad_json" }); }
+      const chatId = body.chatId;
+      if (!chatId) return sendJSON(res, 400, { ok: false, error: "missing_chatId" });
+      const result = await grabarParteMensual(String(chatId));
       return sendJSON(res, 200, result);
     }
     return sendJSON(res, 404, { ok: false, error: "not_found" });

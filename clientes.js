@@ -44,8 +44,17 @@ function clienteBase(userId, nombre, extra) {
     userId, nombre,
     waPhone: null, telegramChatId: null, linkCode: null,
     cdUser: "", cdPass: "", diasPersonal: 10, diasVehiculos: 10, diasEmpresa: 10,
+    trialUntil: null, avisoTrialCliente: false,
     ...extra,
   };
+}
+
+// trialUntil vencido = cliente sin acceso. null/ausente = acceso permanente.
+export function trialVencido(cliente) {
+  if (!cliente || !cliente.trialUntil) return false;
+  const t = Date.parse(cliente.trialUntil);
+  if (Number.isNaN(t)) return false;
+  return t < Date.now();
 }
 
 async function escribir(cliente) {
@@ -59,7 +68,10 @@ export async function cargarCliente(telegramChatId) {
     for (const archivo of archivos) {
       if (!archivo.endsWith(".json") || archivo === "ejemplo.json") continue;
       const data = JSON.parse(await fs.readFile(path.join(dir(), archivo), "utf8"));
-      if (data.telegramChatId != null && String(data.telegramChatId) === String(telegramChatId)) return data;
+      if (data.telegramChatId != null && String(data.telegramChatId) === String(telegramChatId)) {
+        if (trialVencido(data)) return null;
+        return data;
+      }
     }
   } catch {}
   return null;
@@ -108,6 +120,12 @@ export async function crearClienteWA(nombre, waPhone) {
 
 export async function actualizarCliente(telegramChatId, datos) {
   const cliente = await cargarCliente(telegramChatId);
+  if (!cliente) return null;
+  return escribir({ ...cliente, ...datos });
+}
+
+export async function actualizarClientePorUserId(userId, datos) {
+  const cliente = await cargarClientePorUserId(userId);
   if (!cliente) return null;
   return escribir({ ...cliente, ...datos });
 }

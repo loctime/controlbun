@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Bot, InputFile } from "grammy";
 import cron from "node-cron";
-import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, listarTodosClientes, crearClienteWA, genLinkCode, vincularTelegram, setWaPhone } from "./clientes.js";
+import { cargarCliente, registrarCliente, guardarPendiente, consumirPendiente, actualizarCliente, actualizarClientePorUserId, listarTodosClientes, crearClienteWA, genLinkCode, vincularTelegram, setWaPhone, trialVencido } from "./clientes.js";
 import { pdfAImagenes, cortarPaginas, inicializarPdf } from "./pdf.js";
 import { guardarMapeo, leerTodosMapeosPorTipo, eliminarMapeo, leerMapeoBruto, guardarTipoMapeo, leerTipoMapeo } from "./mapeos.js";
 import { cdObtenerSesionActiva, cdInvalidarSesion, cdLeerRequerimientos, cdLeerTiposRequerimientos, cdSubirArchivo, cdLeerVencimientos, cdGrabarParteMensual, cdScrapearTipoRequerimiento, cdGenerarRequerimiento, cdDetectarNombreEmpresa } from "./cd.js";
@@ -394,6 +394,43 @@ bot.command("conectarcliente", async (ctx) => {
     console.error("[conectarcliente] error:", e?.message || e);
     return ctx.reply("❌ No pude conectar el WhatsApp ahora. Probá de nuevo.");
   }
+});
+
+// /prorrogar userId YYYY-MM-DD  → mueve trialUntil.
+// /prorrogar userId permanente  → borra trialUntil (acceso sin límite).
+// /prorrogar sin argumentos     → lista clientes en trial con fecha de vencimiento.
+bot.command("prorrogar", async (ctx) => {
+  if (!ADMIN_IDS.includes(String(ctx.chat.id))) return;
+  const partes = (ctx.match || "").trim().split(/\s+/).filter(Boolean);
+
+  if (partes.length < 1) {
+    const clientes = await listarTodosClientes();
+    const enTrial = clientes.filter(c => c.trialUntil);
+    if (!enTrial.length) return ctx.reply("No hay clientes con trial activo.");
+    const hoy = Date.now();
+    const lineas = enTrial.map(c => {
+      const t = Date.parse(c.trialUntil);
+      const dias = Math.round((t - hoy) / 86400000);
+      const marca = dias < 0 ? "❌ vencido" : `${dias}d`;
+      return `• <code>${c.userId}</code> — ${c.nombre} — vence ${c.trialUntil.slice(0, 10)} (${marca})`;
+    });
+    return ctx.reply(`Trials:\n${lineas.join("\n")}\n\nUso:\n<code>/prorrogar userId YYYY-MM-DD</code>\n<code>/prorrogar userId permanente</code>`, { parse_mode: "HTML" });
+  }
+
+  const userId = partes[0];
+  const arg = (partes[1] || "").toLowerCase();
+  let datos;
+  if (arg === "permanente" || arg === "perm") {
+    datos = { trialUntil: null };
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) {
+    datos = { trialUntil: arg };
+  } else {
+    return ctx.reply("Uso: <code>/prorrogar userId YYYY-MM-DD</code> o <code>/prorrogar userId permanente</code>", { parse_mode: "HTML" });
+  }
+  const cliente = await actualizarClientePorUserId(userId, datos);
+  if (!cliente) return ctx.reply(`No encontré cliente <code>${userId}</code>.`, { parse_mode: "HTML" });
+  const info = cliente.trialUntil ? `Trial hasta <b>${cliente.trialUntil.slice(0, 10)}</b>.` : "Acceso <b>permanente</b> (sin trial).";
+  return ctx.reply(`✅ <b>${cliente.nombre}</b> actualizado. ${info}`, { parse_mode: "HTML" });
 });
 
 // /start con payload — usado por el deep-link generado en /nuevocliente.
@@ -1837,6 +1874,44 @@ cron.schedule("0 9 * * *", async () => {
   console.log(`[CRON VENC] ■ Finalizado en ${duracion}s — procesados=${procesados} alertas=${conAlertas} errores=${errores} sinCreds=${sinCredenciales}`);
 }, { timezone: "America/Argentina/Buenos_Aires" });
 
+// Todos los días a las 09:05 AR — aviso al admin de trials que vencen en <=5 días o ya vencieron.
+cron.schedule("5 9 * * *", async () => {
+  const clientes = await listarTodosClientes();
+  const hoy = Date.now();
+  const ventana = 5 * 86400000;
+  const proximos = [];
+  const vencidos = [];
+  for (const c of clientes) {
+    if (!c.trialUntil) continue;
+    const t = Date.parse(c.trialUntil);
+    if (Number.isNaN(t)) continue;
+    const diff = t - hoy;
+    if (diff < 0) vencidos.push({ c, dias: Math.round(diff / 86400000) });
+    else if (diff <= ventana) proximos.push({ c, dias: Math.ceil(diff / 86400000) });
+  }
+  if (!proximos.length && !vencidos.length) return;
+  const partes = [];
+  if (proximos.length) {
+    partes.push("⏰ <b>Trials por vencer</b>:");
+    for (const { c, dias } of proximos) {
+      partes.push(`• <code>${c.userId}</code> — ${c.nombre} — vence en ${dias}d (${c.trialUntil.slice(0, 10)})`);
+    }
+  }
+  if (vencidos.length) {
+    if (partes.length) partes.push("");
+    partes.push("❌ <b>Trials vencidos</b> (sin acceso):");
+    for (const { c, dias } of vencidos) {
+      partes.push(`• <code>${c.userId}</code> — ${c.nombre} — hace ${Math.abs(dias)}d`);
+    }
+  }
+  partes.push("");
+  partes.push("Prorrogar: <code>/prorrogar userId YYYY-MM-DD</code> o <code>/prorrogar userId permanente</code>");
+  const msg = partes.join("\n");
+  for (const id of ADMIN_IDS) {
+    try { await bot.api.sendMessage(id, msg, { parse_mode: "HTML" }); } catch (e) { console.error("[CRON TRIAL] admin", id, e.message); }
+  }
+}, { timezone: "America/Argentina/Buenos_Aires" });
+
 // ─── Setup y arranque ────────────────────────────────────────────────────────
 
 bot.catch((err) => console.error("[BOT ERROR]", err.message));
@@ -1861,7 +1936,7 @@ async function setupCommands() {
   await bot.api.setMyCommands(base, { scope: { type: "default" } });
   for (const id of ADMIN_IDS) {
     await bot.api.setMyCommands(
-      [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }, { command: "modelo", description: "Ver/cambiar IA: claude o gemini" }],
+      [...base, { command: "nuevocliente", description: "Registrar cliente: NombreApellido CODIGO" }, { command: "prorrogar", description: "Prorrogar trial: userId YYYY-MM-DD o permanente" }, { command: "modelo", description: "Ver/cambiar IA: claude o gemini" }],
       { scope: { type: "chat", chat_id: Number(id) } }
     );
   }
