@@ -106,3 +106,44 @@ test("trialEstadoDe: fecha pasada -> vencido con dias negativos", () => {
 test("SISTEMAS_VALIDOS incluye bunn, redes, entrevista", () => {
   assert.deepStrictEqual(SISTEMAS_VALIDOS, ["bunn", "redes", "entrevista"]);
 });
+
+// ── Tests Task 4: listado cruzado clientes + capacidades ────────────────────
+import fssync from "fs";
+const { listarClientesCruzado } = await import("../admin.js");
+const { crearClienteWA } = await import("../clientes.js");
+
+test("listarClientesCruzado: cruza cliente+capacidades por telefono, detecta inconsistencias", async () => {
+  const clientesTmp = path.join(os.tmpdir(), `clientes-cruzado-${Date.now()}`);
+  fssync.mkdirSync(clientesTmp);
+  process.env.CLIENTES_DIR = clientesTmp;
+  const capTmp = path.join(os.tmpdir(), `cap-cruzado-${Date.now()}.json`);
+  process.env.CAPACIDADES_PATH = capTmp;
+
+  // Cliente completo: existe en clientes/ y en capacidades.json
+  const completo = await crearClienteWA("Fernando Completo", "5493364524758");
+  // Cliente inconsistente: existe en clientes/ pero NO en capacidades.json
+  await crearClienteWA("Solo En Clientes", "5493400000001");
+
+  await escribirCapacidades({
+    "5493364524758": { nombre: "Fernando Completo", sistemas: ["bunn"] },
+    // Inconsistente: existe en capacidades.json pero NO en clientes/
+    "5493400000002": { nombre: "Solo En Capacidades", sistemas: ["entrevista"] },
+  });
+
+  const lista = await listarClientesCruzado();
+  assert.strictEqual(lista.length, 3);
+
+  const fernando = lista.find((c) => c.waPhone === "5493364524758");
+  assert.strictEqual(fernando.userId, completo.userId);
+  assert.deepStrictEqual(fernando.sistemas, ["bunn"]);
+  assert.strictEqual(fernando.inconsistente, false);
+
+  const soloClientes = lista.find((c) => c.waPhone === "5493400000001");
+  assert.strictEqual(soloClientes.inconsistente, true);
+  assert.deepStrictEqual(soloClientes.sistemas, []);
+
+  const soloCapacidades = lista.find((c) => c.waPhone === "5493400000002");
+  assert.strictEqual(soloCapacidades.inconsistente, true);
+  assert.strictEqual(soloCapacidades.userId, null);
+  assert.strictEqual(soloCapacidades.nombre, "Solo En Capacidades");
+});

@@ -97,3 +97,35 @@ export function trialEstadoDe(trialUntil) {
   const dias = Math.ceil((t - Date.now()) / 86400000);
   return { estado: dias < 0 ? "vencido" : "vigente", dias };
 }
+
+// ── Listado cruzado (clientes + capacidades) ───────────────────────────────
+import { listarTodosClientes, normalizeArgWa } from "./clientes.js";
+
+export async function listarClientesCruzado() {
+  const clientes = await listarTodosClientes();
+  const capacidades = await leerCapacidades();
+
+  const porTelefono = new Map();
+  for (const c of clientes) {
+    const tel = normalizeArgWa(c.waPhone);
+    if (tel) porTelefono.set(tel, c);
+  }
+
+  const telefonos = new Set([...porTelefono.keys(), ...Object.keys(capacidades)]);
+  const resultado = [];
+  for (const tel of telefonos) {
+    const cliente = porTelefono.get(tel) || null;
+    const cap = capacidades[tel] || null;
+    resultado.push({
+      userId: cliente ? cliente.userId : null,
+      nombre: (cliente && cliente.nombre) || (cap && cap.nombre) || null,
+      waPhone: tel,
+      sistemas: (cap && cap.sistemas) || [],
+      trialUntil: cliente ? (cliente.trialUntil ?? null) : null,
+      trialEstado: cliente ? trialEstadoDe(cliente.trialUntil) : null,
+      cdConfigurado: !!(cliente && cliente.cdUser),
+      inconsistente: !cliente || !cap,
+    });
+  }
+  return resultado;
+}
