@@ -280,20 +280,28 @@ test("altaCliente: si falla escribir capacidades.json, devuelve warning en vez d
   assert.strictEqual(cliente.waPhone, "5493400000015");
 });
 
-test("editarCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar", async () => {
+test("editarCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar (y la escritura primaria persiste)", async () => {
   process.env.CLIENTES_DIR = nuevoTmpDir("clientes-editwarn");
   process.env.CAPACIDADES_PATH = path.join(os.tmpdir(), `cap-editwarn-${Date.now()}.json`);
   const { altaCliente, editarCliente } = await import("../admin.js");
+  const { cargarClientePorUserId } = await import("../clientes.js");
 
   const alta = await altaCliente({ nombre: "Editable Warning", waPhone: "5493400000016", sistemas: ["bunn"] });
 
   // ahora rompemos capacidades.json apuntándolo a un directorio antes de editar
   process.env.CAPACIDADES_PATH = nuevoTmpDir("cap-editwarn-dir");
 
-  const r = await editarCliente(alta.userId, { sistemas: ["bunn", "redes"] });
+  // el patch incluye trialUntil (además de sistemas) para forzar que actualizarClientePorUserId
+  // SÍ se ejecute y persista antes de que falle escribirCapacidades — si solo mandáramos
+  // "sistemas", no habría ninguna escritura primaria real que verificar acá.
+  const r = await editarCliente(alta.userId, { trialUntil: "2026-12-31", sistemas: ["bunn", "redes"] });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(typeof r.warning, "string");
   assert.ok(r.warning.length > 0);
+
+  // la escritura primaria (clientes/<userId>.json) persistió pese al warning
+  const cliente = await cargarClientePorUserId(alta.userId);
+  assert.strictEqual(cliente.trialUntil, "2026-12-31");
 });
 
 test("bajaCliente: si falla escribir capacidades.json, devuelve warning en vez de tirar", async () => {
